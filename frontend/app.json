@@ -8,17 +8,12 @@
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-      "notification": {
-      "icon": "./assets/images/notification-icon.png"
-    }
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.unisafe",
@@ -27,11 +22,7 @@
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to show your position on the map, provide safety information, and enable Guardian features.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location in the background to provide continuous safety monitoring and emergency alerts.",
         "NSLocationAlwaysUsageDescription": "This app needs access to location in the background to provide continuous safety monitoring and emergency alerts.",
-        "UIBackgroundModes": [
-          "location",
-          "audio",
-          "fetch"
-        ],
+        "UIBackgroundModes": ["location", "audio", "fetch"],
         "ITSAppUsesNonExemptEncryption": false
       },
       "config": {
