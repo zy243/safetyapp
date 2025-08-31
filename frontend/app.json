@@ -8,9 +8,6 @@
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "extra": {
-      "BACKEND_URL": "http://localhost:5000"
-    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
