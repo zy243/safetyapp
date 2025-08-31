@@ -111,10 +111,7 @@
       "tsconfigPaths": true
     },
     "extra": {
-      "BACKEND_URL": "http://localhost:5000",
-      "eas": {
-        "projectId": "your-project-id-here"
-      }
+      "BACKEND_URL": "http://localhost:5000"
     },
     "runtimeVersion": {
       "policy": "sdkVersion"
