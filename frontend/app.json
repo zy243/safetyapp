@@ -7,7 +7,6 @@
     "icon": "./assets/images/logo.png",
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -19,14 +18,9 @@
       "bundleIdentifier": "com.yourcompany.unisafe",
       "buildNumber": "1.0.0",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "This app needs access to location to show your position on the map, provide safety information, and enable Guardian features.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location in the background to provide continuous safety monitoring and emergency alerts.",
-        "NSLocationAlwaysUsageDescription": "This app needs access to location in the background to provide continuous safety monitoring and emergency alerts.",
-        "UIBackgroundModes": ["location", "audio", "fetch"],
-        "ITSAppUsesNonExemptEncryption": false
-      },
-      "config": {
-        "usesNonExemptEncryption": false
+        "NSLocationWhenInUseUsageDescription": "This app needs access to location for safety features.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location in the background.",
+        "UIBackgroundModes": ["location", "audio", "fetch"]
       }
     },
     "android": {
@@ -34,97 +28,26 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "WAKE_LOCK",
-        "VIBRATE",
-        "RECORD_AUDIO",
-        "MODIFY_AUDIO_SETTINGS",
-        "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.INTERNET"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyCWVQznQKDcmgdKc6nWlEgqZlGkh0nKeFI"
-        }
-      },
-      "package": "com.yourcompany.unisafe",
-      "versionCode": 1,
-      "softwareKeyboardLayoutMode": "pan"
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "INTERNET"]
     },
     "web": {
-      "bundler": "metro",
-      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
       [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
-      "expo-secure-store",
-      "expo-audio",
-      "expo-video",
-      [
-        "expo-location",
-        {
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location for safety features and emergency alerts."
-        }
-      ],
-      [
         "expo-notifications",
         {
-          "icon": "./assets/images/notification-icon.png",
-          "color": "#ffffff",
-          "sounds": [
-            "./assets/sounds/emergency-alert.wav",
-            "./assets/sounds/notification.wav"
-          ]
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera to take photos for incident reports."
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos for incident reports.",
-          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera for incident reports."
+          "icon": "./assets/images/logo.png",
+          "color": "#FF0000"
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true,
-      "tsconfigPaths": true
-    },
     "extra": {
       "BACKEND_URL": "http://localhost:5000"
     },
-    "runtimeVersion": {
-      "policy": "sdkVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/your-project-id-here"
-    },
-    "androidNavigationBar": {
-      "visible": "sticky-immersive",
-      "backgroundColor": "#000000"
-    },
     "notification": {
-      "icon": "./assets/images/notification-icon.png",
+      "icon": "./assets/images/logo.png",
       "color": "#FF0000",
       "androidMode": "default",
       "androidCollapsedTitle": "UniSafe Alert"
