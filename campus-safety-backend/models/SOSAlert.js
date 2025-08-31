@@ -1,6 +1,7 @@
 ﻿// models/SOSAlert.js
 import mongoose from 'mongoose';
 
+// Define the schema
 const SOSAlertSchema = new mongoose.Schema(
     {
         user: {
@@ -27,9 +28,8 @@ const SOSAlertSchema = new mongoose.Schema(
     }
 );
 
-// ✅ Safer fix
-export default mongoose.modelNames().includes('SOSAlert')
-    ? mongoose.model('SOSAlert')
-    : mongoose.model('SOSAlert', SOSAlertSchema);
+// Create the model
+const SOSAlert = mongoose.model('SOSAlert', SOSAlertSchema);
 
+// Export the model (ESM)
 export default SOSAlert;
