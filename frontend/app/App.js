@@ -1,11 +1,12 @@
+// app/App.js
 import React from 'react';
 import { GuardianProvider } from '../contexts/GuardianContext';
-import Navigation from './Navigation'; // Your navigation component
+import 'expo-router/entry'; // Automatically handles routing
 
 const App = () => {
   return (
     <GuardianProvider>
-      <Navigation />
+      {/* Expo Router will handle navigation automatically */}
     </GuardianProvider>
   );
 };
