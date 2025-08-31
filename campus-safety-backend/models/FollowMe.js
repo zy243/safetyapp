@@ -34,48 +34,24 @@ const followMeSchema = new mongoose.Schema({
         }
     }],
     currentLocation: {
-        latitude: {
-            type: Number,
-            required: true
-        },
-        longitude: {
-            type: Number,
-            required: true
-        },
+        latitude: { type: Number, required: true },
+        longitude: { type: Number, required: true },
         accuracy: Number,
-        timestamp: {
-            type: Date,
-            default: Date.now
-        },
+        timestamp: { type: Date, default: Date.now },
         address: String
     },
     locationHistory: [{
         latitude: Number,
         longitude: Number,
         accuracy: Number,
-        timestamp: {
-            type: Date,
-            default: Date.now
-        },
+        timestamp: { type: Date, default: Date.now },
         address: String
     }],
     settings: {
-        updateInterval: {
-            type: Number,
-            default: 30 // seconds
-        },
-        maxHistoryPoints: {
-            type: Number,
-            default: 100
-        },
-        shareLocation: {
-            type: Boolean,
-            default: true
-        },
-        shareAddress: {
-            type: Boolean,
-            default: true
-        }
+        updateInterval: { type: Number, default: 30 }, // seconds
+        maxHistoryPoints: { type: Number, default: 100 },
+        shareLocation: { type: Boolean, default: true },
+        shareAddress: { type: Boolean, default: true }
     },
     status: {
         type: String,
@@ -86,13 +62,11 @@ const followMeSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Index for efficient queries
+// Indexes for efficient queries
 followMeSchema.index({ user: 1, isActive: 1 });
 followMeSchema.index({ 'sharingWith.userId': 1 });
 followMeSchema.index({ expiresAt: 1 });
 
-export default mongoose.model('FollowMe', followMeSchema);
-
-
-
+const FollowMe = mongoose.models.FollowMe || mongoose.model('FollowMe', followMeSchema);
+export default FollowMe;
 

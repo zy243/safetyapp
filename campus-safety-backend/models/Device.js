@@ -12,4 +12,6 @@ const DeviceSchema = new Schema({
 
 DeviceSchema.index({ deviceId: 1, user: 1 }, { unique: true });
 
-export default mongoose.model('Device', DeviceSchema);
+const Device = mongoose.models.Device || mongoose.model('Device', DeviceSchema);
+export default Device;
+

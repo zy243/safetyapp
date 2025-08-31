@@ -1,3 +1,4 @@
+//SafeRoute.js
 import mongoose from 'mongoose';
 
 const safeRouteSchema = new mongoose.Schema({
@@ -110,7 +111,9 @@ safeRouteSchema.index({ startLocation: '2dsphere' });
 safeRouteSchema.index({ endLocation: '2dsphere' });
 safeRouteSchema.index({ safetyLevel: 1, isActive: 1 });
 
-export default mongoose.model('SafeRoute', safeRouteSchema);
+const SafeRoute = mongoose.models.SafeRoute || mongoose.model('SafeRoute', safeRouteSchema);
+export default SafeRoute;
+
 
 
 

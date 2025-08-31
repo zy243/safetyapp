@@ -1,63 +1,49 @@
-﻿import express from 'express';
+﻿// routes/sos.js
+import express from 'express';
+import {
+    sendAlert,
+    getAllAlerts,
+    resolveAlert,
+    getAlert
+} from '../controllers/sosController.js';
 import { auth, requireRole } from '../middleware/auth.js';
-import SOSAlert from '../models/SOSAlert.js';
-import { sendAlert } from '../controllers/sosController.js';
+import SOSAlert from '../models/SOSAlert.js'; // added missing import
 
 const router = express.Router();
 
-// Simple test route
-router.get('/', (req, res) => res.send('SOS API is running...'));
-
-// Create SOS alert (authenticated)
+// Authenticated SOS trigger (requires user login)
 router.post('/alert', auth, sendAlert);
 
-// Open/manual trigger
-router.post('/sos', sendAlert);
+// Open SOS trigger (emergency, no auth required)
+router.post('/trigger', sendAlert);
 
-// Get alerts for authenticated user
-router.get('/mine', auth, async (req, res) => {
+// Get all alerts (staff only: security, admin, teacher)
+router.get('/alerts', auth, requireRole(['security', 'admin', 'teacher']), getAllAlerts);
+
+// Get specific alert
+router.get('/alerts/:id', auth, requireRole(['security', 'admin', 'teacher']), getAlert);
+
+// Resolve an alert
+router.patch('/alerts/:id/resolve', auth, requireRole(['security', 'admin', 'teacher']), resolveAlert);
+
+// Get user's SOS history
+router.get('/history', auth, async (req, res) => {
     try {
-        const alerts = await SOSAlert.find({ user: req.user._id }).sort({ createdAt: -1 });
-        res.json({ alerts });
-    } catch (err) {
-        console.error('Mine alerts error', err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
+        const alerts = await SOSAlert.find({ user: req.user.id })
+            .sort({ createdAt: -1 })
+            .limit(20);
 
-// Teacher/security creates SOS
-router.post('/create', auth, requireRole(['teacher', 'security']), (req, res) => {
-    res.json({ message: 'SOS created successfully' });
-});
-
-// Resolve alert (teacher/security only)
-router.patch('/:id/resolve', auth, requireRole(['teacher', 'security']), async (req, res) => {
-    try {
-        const alert = await SOSAlert.findById(req.params.id);
-        if (!alert) return res.status(404).json({ error: 'Alert not found' });
-
-        alert.status = 'resolved';
-        alert.handledBy = req.user._id;
-        await alert.save();
-
-        const populated = await SOSAlert.findById(alert._id)
-            .populate('user', 'name role')
-            .populate('handledBy', 'name role');
-
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('sos_resolved', {
-                id: populated._id,
-                status: populated.status,
-                handledBy: populated.handledBy ? { id: populated.handledBy._id, name: populated.handledBy.name } : null,
-                resolvedAt: new Date(),
-            });
-        }
-
-        res.json({ alert: populated });
-    } catch (err) {
-        console.error('Resolve error', err);
-        res.status(500).json({ error: 'Server error' });
+        res.json({
+            success: true,
+            alerts
+        });
+    } catch (error) {
+        console.error('Error fetching SOS history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching SOS history',
+            error: error.message
+        });
     }
 });
 

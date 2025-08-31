@@ -5,6 +5,6 @@ const searchHistorySchema = new mongoose.Schema({
     query: { type: String, required: true },     // what user searched
     timestamp: { type: Date, default: Date.now } // when they searched
 });
+const SearchHistory = mongoose.models.SearchHistory || mongoose.model("SearchHistory", searchHistorySchema);
+export default SearchHistory;
 
-// ✅ Export properly in ES modules
-export default mongoose.model("SearchHistory", searchHistorySchema);

@@ -1,4 +1,6 @@
-function requireRole(requiredRoles = []) {
+// middleware/requireRole.js
+
+export default function requireRole(requiredRoles = []) {
     return (req, res, next) => {
         try {
             // Ensure user is authenticated
@@ -21,6 +23,4 @@ function requireRole(requiredRoles = []) {
         }
     };
 }
-
-module.exports = requireRole;
 

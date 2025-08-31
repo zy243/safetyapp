@@ -1,5 +1,4 @@
-// server.js
-import 'dotenv/config'; // automatically loads .env
+import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -8,12 +7,10 @@ import path from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
-import { readDB } from './db.js';
+import cron from 'node-cron';
 
-// ====================
-// ROUTERS
-// ====================
-import escortRouter, { checkOverdueLoop } from './routes/escort.js';
+// Routers
+import escortRouter from './routes/escort.js';
 import locationRouter from './routes/location.js';
 import authRoutes from './routes/auth.js';
 import sosRoutes from './routes/sos.js';
@@ -23,36 +20,48 @@ import safetyAlertRoutes from './routes/safetyAlerts.js';
 import safeRouteRoutes from './routes/safeRoutes.js';
 import followMeRoutes from './routes/followMe.js';
 import notificationRoutes from './routes/notifications.js';
+import incidentRoutes from './routes/incidents.js';
+import homeRoutes from './routes/home.js';
+import guardianRoutes from './routes/guardian.js';
+import tripRoutes from './routes/trips.js';
+import checkinRoutes from './routes/checkins.js';
+import flashlightRoutes from './routes/flashlight.js';
 
-// ====================
-// APP & SERVER
-// ====================
+// Models
+import User from './models/User.js';
+import Escort from './models/Escort.js';
+import Incident from './models/Incident.js';
+import SOSAlert from './models/SOSAlert.js';
+import SafetyAlert from './models/SafetyAlert.js';
+import Trip from './models/Trip.js';
+import Checkin from './models/Checkin.js';
+import LocationUpdate from './models/LocationUpdate.js';
+import FlashlightSession from './models/FlashlightSession.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 
-// ====================
-// SOCKET.IO
-// ====================
+// Socket.IO setup
 const io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+        origin: process.env.FRONTEND_URL || '*',
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+        credentials: true
+    }
 });
 app.set('io', io);
 
-// ====================
-// MIDDLEWARES
-// ====================
+// Middlewares
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({ origin: process.env.FRONTEND_URL || true, credentials: true }));
 app.use('/uploads', express.static(path.resolve(__dirname, 'uploads')));
 
-// ====================
-// ROUTES
-// ====================
+// Routes
 app.use('/api/escort', escortRouter);
 app.use('/api/location', locationRouter);
 app.use('/api/auth', authRoutes);
@@ -63,88 +72,114 @@ app.use('/api/safety-alerts', safetyAlertRoutes);
 app.use('/api/safe-routes', safeRouteRoutes);
 app.use('/api/follow-me', followMeRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/incidents', incidentRoutes);
+app.use('/api/home', homeRoutes);
+app.use('/api/guardian', guardianRoutes);
+app.use('/api/trips', tripRoutes);
+app.use('/api/checkins', checkinRoutes);
+app.use('/api/flashlight', flashlightRoutes);
 
 // Health check
-app.get('/api/health', (req, res) =>
-    res.json({ ok: true, time: new Date().toISOString() })
-);
+app.get('/api/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Server is running',
+        time: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        version: '1.0.0'
+    });
+});
 
-// Home page showing DB counts
-app.get('/', async (req, res) => {
+// Background task for overdue check-ins
+cron.schedule('* * * * *', async () => {
     try {
-        const db = await readDB();
-        const counts = {
-            users: db.users.length,
-            escorts: db.escorts.length,
-            shares: db.shares.length,
-            alerts: db.alerts.length,
-        };
-        res.send(`<h1>Campus Safety API</h1>
-<p>OK - ${new Date().toISOString()}</p>
-<pre>${JSON.stringify(counts, null, 2)}</pre>`);
-    } catch (err) {
-        console.error('Error reading DB:', err);
-        res.status(500).send('Server error');
+        const { checkOverdueCheckins } = await import('./services/notificationService.js');
+        await checkOverdueCheckins();
+        console.log('Checked for overdue check-ins');
+    } catch (error) {
+        console.error('Error in background check:', error);
     }
 });
 
-// ====================
-// SOCKET.IO EVENTS
-// ====================
+// MongoDB connection
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/campus-safety';
+const connectWithRetry = async () => {
+    try {
+        await mongoose.connect(MONGO_URI, {
+            serverSelectionTimeoutMS: 5000,
+            socketTimeoutMS: 45000
+        });
+        console.log('✅ MongoDB connected');
+
+        // Start server
+        const PORT = process.env.PORT || 5000;
+        server.listen(PORT, () => {
+            console.log(`🚀 Server running on http://localhost:${PORT}`);
+        });
+    } catch (err) {
+        console.error('❌ MongoDB connection error:', err.message);
+        setTimeout(connectWithRetry, 5000);
+    }
+};
+connectWithRetry();
+
+// Socket.IO events
 io.on('connection', (socket) => {
     console.log('✅ Socket connected:', socket.id);
 
     socket.on('join-user', (userId) => {
         socket.join(`user_${userId}`);
-        console.log(`User ${userId} joined their room`);
     });
 
-    socket.on('join-room', (room) => {
-        socket.join(room);
-        console.log(`Socket ${socket.id} joined room ${room}`);
-    });
+    socket.on('guardian-location-update', async (data) => {
+        if (!data.tripId || !data.coordinates) return;
+        const locationUpdate = await LocationUpdate.create({
+            trip: data.tripId,
+            user: socket.userId,
+            coordinates: data.coordinates,
+            address: data.address || '',
+            timestamp: new Date()
+        });
 
-    socket.on('follow-me-update', (data) => {
-        if (data.trustedContacts && Array.isArray(data.trustedContacts)) {
-            data.trustedContacts.forEach((contactId) => {
-                io.to(`user_${contactId}`).emit('followMeUpdate', {
-                    userId: data.userId,
-                    userName: data.userName,
-                    location: data.location,
+        const trip = await Trip.findById(data.tripId).populate('trustedContacts');
+        if (trip?.trustedContacts) {
+            trip.trustedContacts.forEach(contact => {
+                io.to(`user_${contact.user}`).emit('guardian-location-update', {
+                    tripId: data.tripId,
+                    location: data.coordinates,
+                    address: data.address,
+                    timestamp: new Date(),
+                    userId: socket.userId
                 });
             });
         }
     });
 
-    socket.on('sos-alert', (data) => {
-        io.to('security').emit('sosAlert', data);
-        io.to('emergency').emit('sosAlert', data);
+    socket.on('disconnect', (reason) => {
+        console.log('❌ Socket disconnected:', socket.id, reason);
     });
-
-    socket.on('safety-alert', (data) => {
-        if (data.areaId) io.to(`area_${data.areaId}`).emit('safetyAlert', data);
-    });
-
-    socket.on('disconnect', () => console.log('❌ Socket disconnected:', socket.id));
 });
-// ====================
-// START SERVER + MONGO
-// ====================
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/campus-safety';
 
-if (!process.env.JWT_SECRET) console.warn('⚠️ JWT_SECRET not set in .env');
+// Global error & 404 handlers
+app.use((err, req, res, next) => {
+    console.error('Global error:', err);
+    res.status(500).json({ success: false, message: 'Internal server error', error: err.message });
+});
+app.use('*', (req, res) => {
+    res.status(404).json({ success: false, message: 'Endpoint not found', path: req.originalUrl });
+});
 
-mongoose
-    .connect(MONGO_URI) // removed deprecated options
-    .then(() => {
-        console.log('✅ MongoDB connected');
-        server.listen(PORT, () => {
-            console.log(`🚀 Server running on http://localhost:${PORT}`);
-            if (typeof checkOverdueLoop === 'function') checkOverdueLoop();
-        });
-    })
-    .catch((err) => {
-        console.error('❌ MongoDB connection error:', err);
-        process.exit(1);
-    });
+// Graceful shutdown
+const gracefulShutdown = async (signal) => {
+    console.log(`\n${signal} received. Shutting down...`);
+    server.close(() => console.log('HTTP server closed'));
+    if (mongoose.connection.readyState !== 0) await mongoose.connection.close();
+    io.close();
+    process.exit(0);
+};
+['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'].forEach(event => {
+    process.on(event, () => gracefulShutdown(event));
+});
+
+export default app;

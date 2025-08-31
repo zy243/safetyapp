@@ -1,11 +1,11 @@
 // middleware/authMiddleware.js
-const jwt = require('jsonwebtoken');
-const User = require('../models/User.js');
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
 
 const secret = process.env.JWT_SECRET;
 
 // Authentication middleware
-async function auth(req, res, next) {
+export async function auth(req, res, next) {
     const authHeader = req.header('Authorization');
     if (!authHeader) {
         return res.status(401).json({ error: 'No token provided' });
@@ -28,7 +28,7 @@ async function auth(req, res, next) {
 }
 
 // Role-based access middleware
-function requireRole(requiredRoles = []) {
+export function requireRole(requiredRoles = []) {
     return (req, res, next) => {
         try {
             if (!req.user || !req.user.role) {
@@ -48,5 +48,3 @@ function requireRole(requiredRoles = []) {
         }
     };
 }
-
-module.exports = { auth, requireRole };
