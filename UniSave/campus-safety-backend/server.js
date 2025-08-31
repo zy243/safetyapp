@@ -1,19 +1,19 @@
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const http = require('http');
-const { Server } = require('socket.io');
+import dotenv from 'dotenv';
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import http from 'http';
+import { Server } from 'socket.io';
 
 // Routes
-const authRoutes = require('./routes/auth');
-const sosRoutes = require('./routes/sos');
-const chatbotRoute = require("./routes/chatbot");
-const searchHistoryRoutes = require("./routes/searchHistory");
-const safetyAlertRoutes = require('./routes/safetyAlerts');
-const safeRouteRoutes = require('./routes/safeRoutes');
-const followMeRoutes = require('./routes/followMe');
-const notificationRoutes = require('./routes/notifications');
+import authRoutes from './routes/auth.js';
+import sosRoutes from './routes/sos.js';
+import chatbotRoute from "./routes/chatbot.js";
+import searchHistoryRoutes from "./routes/searchHistory.js";
+import safetyAlertRoutes from './routes/safetyAlerts.js';
+import safeRouteRoutes from './routes/safeRoutes.js';
+import followMeRoutes from './routes/followMe.js';
+import notificationRoutes from './routes/notifications.js';
 
 const app = express();
 const server = http.createServer(app);
