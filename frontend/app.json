@@ -1,3 +1,12 @@
+import Constants from "expo-constants";
+
+const BACKEND_URL = Constants.manifest.extra.BACKEND_URL || "http://localhost:5000";
+
+// Example API call
+fetch(`${BACKEND_URL}/api/users`)
+  .then(res => res.json())
+  .then(data => console.log(data));
+
 {
   "expo": {
     "name": "UniSafe",
