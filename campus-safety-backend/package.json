@@ -2,6 +2,7 @@
   "name": "campus-safety-backend",
   "version": "1.0.0",
   "description": "Backend for Campus Safety App (Auth + SOS)",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",

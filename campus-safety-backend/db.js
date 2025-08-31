@@ -1,37 +1,44 @@
-const fs = require('fs').promises;
-const path = require('path');
+// db.js
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, '../data.json'); // safer path resolution
+// Fix __dirname in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, '../data.json');
 
 const defaultData = {
-    users: [],        // { id, email, name }
-    reports: [],      // { id, userName, category, description, attachments[], createdAt }
-    escorts: [],      // { id, userName, destination, durationMinutes, expectedEnd, startTime, status, guardianEmails[], shareToken, completedAt, alertedAt }
-    shares: [],       // { token, userName, active, createdAt, expiresAt }
-    locations: [],    // { userName, lat, lng, accuracy, updatedAt }
-    alerts: []        // { id, type, message, createdAt, sessionId, guardians: [] }
+    users: [],
+    reports: [],
+    escorts: [],
+    shares: [],
+    locations: [],
+    alerts: []
 };
 
-// Ensure the DB file exists; if not, create it with defaultData
-async function ensureDB() {
+// Ensure DB file exists
+export async function ensureDB() {
     try {
         await fs.access(DB_FILE);
     } catch (err) {
+        console.log(`DB not found. Creating new DB at ${DB_FILE}`);
         await fs.writeFile(DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
     }
 }
 
-// Read DB content safely
-async function readDB() {
+// Read DB safely
+export async function readDB() {
     await ensureDB();
     try {
         const raw = await fs.readFile(DB_FILE, 'utf-8');
         const data = JSON.parse(raw);
 
-        // Ensure all required keys exist
+        // Make sure all keys exist
         for (const key of Object.keys(defaultData)) {
             if (!Object.prototype.hasOwnProperty.call(data, key)) {
-                data[key] = Array.isArray(defaultData[key]) ? [] : defaultData[key];
+                data[key] = [];
             }
         }
 
@@ -43,8 +50,8 @@ async function readDB() {
     }
 }
 
-// Write data to DB file
-async function writeDB(data) {
+// Write DB
+export async function writeDB(data) {
     try {
         await fs.writeFile(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
     } catch (err) {
@@ -52,9 +59,3 @@ async function writeDB(data) {
         throw err;
     }
 }
-
-module.exports = {
-    ensureDB,
-    readDB,
-    writeDB,
-};
