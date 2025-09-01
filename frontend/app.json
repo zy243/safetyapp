@@ -44,7 +44,7 @@
       ]
     ],
     "extra": {
-      "BACKEND_URL": "http://localhost:5000"
+      "BACKEND_URL": "http:// 192.168.0.170:5000"
     },
     "notification": {
       "icon": "./assets/images/logo.png",
