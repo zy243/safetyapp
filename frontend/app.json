@@ -2,6 +2,9 @@
   "expo": {
     "name": "UniSafe",
     "slug": "frontend",
+    "extra": {
+      "BACKEND_URL": "https://5000-supreme-barnacle-wrg4wxj4qjgq3wg6.githubpreview.dev"
+    },
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
@@ -43,9 +46,7 @@
         }
       ]
     ],
-    "extra": {
-      "BACKEND_URL": "http://localhost:5000"
-    },
+  
     "notification": {
       "icon": "./assets/images/logo.png",
       "color": "#FF0000",
