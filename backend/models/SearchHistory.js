@@ -1,10 +1,22 @@
-﻿import mongoose from "mongoose";
+﻿import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const searchHistorySchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    query: { type: String, required: true },     // what user searched
-    timestamp: { type: Date, default: Date.now } // when they searched
+class SearchHistory extends Model {}
+
+SearchHistory.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    query: { type: DataTypes.STRING, allowNull: false }, // what user searched
+    timestamp: { type: DataTypes.DATE, defaultValue: DataTypes.NOW } // when they searched
+}, {
+    sequelize,
+    tableName: 'search_history',
+    timestamps: false,
+    indexes: [
+        { fields: ['userId'] },
+        { fields: ['timestamp'] }
+    ]
 });
-const SearchHistory = mongoose.models.SearchHistory || mongoose.model("SearchHistory", searchHistorySchema);
+
 export default SearchHistory;
 

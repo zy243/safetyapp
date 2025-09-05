@@ -1,117 +1,72 @@
-//SafeRoute.js
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const safeRouteSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true,
-        trim: true
+class SafeRoute extends Model {}
+
+SafeRoute.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    name: { 
+        type: DataTypes.STRING, 
+        allowNull: false 
     },
-    description: String,
-    startLocation: {
-        latitude: {
-            type: Number,
-            required: true
-        },
-        longitude: {
-            type: Number,
-            required: true
-        },
-        name: String
+    description: { type: DataTypes.TEXT },
+    startLocationLat: { 
+        type: DataTypes.DECIMAL(10, 8),
+        allowNull: false
     },
-    endLocation: {
-        latitude: {
-            type: Number,
-            required: true
-        },
-        longitude: {
-            type: Number,
-            required: true
-        },
-        name: String
+    startLocationLng: { 
+        type: DataTypes.DECIMAL(11, 8),
+        allowNull: false
     },
-    waypoints: [{
-        latitude: Number,
-        longitude: Number,
-        name: String,
-        description: String
-    }],
-    routeType: {
-        type: String,
-        enum: ['walking', 'cycling', 'driving', 'public_transport'],
-        default: 'walking'
+    startLocationName: { type: DataTypes.STRING },
+    endLocationLat: { 
+        type: DataTypes.DECIMAL(10, 8),
+        allowNull: false
     },
-    safetyLevel: {
-        type: String,
-        enum: ['very_safe', 'safe', 'moderate', 'avoid'],
-        default: 'safe'
+    endLocationLng: { 
+        type: DataTypes.DECIMAL(11, 8),
+        allowNull: false
     },
-    features: {
-        wellLit: {
-            type: Boolean,
-            default: false
-        },
-        populated: {
-            type: Boolean,
-            default: false
-        },
-        hasSecurity: {
-            type: Boolean,
-            default: false
-        },
-        hasEmergencyPhones: {
-            type: Boolean,
-            default: false
-        },
-        hasCCTV: {
-            type: Boolean,
-            default: false
-        }
+    endLocationName: { type: DataTypes.STRING },
+    waypoints: { type: DataTypes.JSON, defaultValue: [] },
+    routeType: { 
+        type: DataTypes.ENUM('walking', 'cycling', 'driving', 'public_transport'),
+        defaultValue: 'walking'
     },
-    estimatedTime: {
-        type: Number, // in minutes
-        required: true
+    safetyLevel: { 
+        type: DataTypes.ENUM('very_safe', 'safe', 'moderate', 'avoid'),
+        defaultValue: 'safe'
     },
-    distance: {
-        type: Number, // in meters
-        required: true
-    },
-    isActive: {
-        type: Boolean,
-        default: true
-    },
-    createdBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
-    lastUpdated: {
-        type: Date,
-        default: Date.now
-    },
-    usageCount: {
-        type: Number,
-        default: 0
-    },
-    rating: {
-        average: {
-            type: Number,
-            default: 0
-        },
-        count: {
-            type: Number,
-            default: 0
-        }
-    }
+    wellLit: { type: DataTypes.BOOLEAN, defaultValue: false },
+    populated: { type: DataTypes.BOOLEAN, defaultValue: false },
+    hasSecurity: { type: DataTypes.BOOLEAN, defaultValue: false },
+    hasEmergencyPhones: { type: DataTypes.BOOLEAN, defaultValue: false },
+    hasCCTV: { type: DataTypes.BOOLEAN, defaultValue: false },
+    estimatedTime: { 
+        type: DataTypes.INTEGER, 
+        allowNull: false 
+    }, // in minutes
+    distance: { 
+        type: DataTypes.INTEGER, 
+        allowNull: false 
+    }, // in meters
+    isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+    createdById: { type: DataTypes.INTEGER.UNSIGNED },
+    lastUpdated: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    usageCount: { type: DataTypes.INTEGER, defaultValue: 0 },
+    ratingAverage: { type: DataTypes.DECIMAL(3, 2), defaultValue: 0 },
+    ratingCount: { type: DataTypes.INTEGER, defaultValue: 0 }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'safe_routes',
+    timestamps: true,
+    indexes: [
+        { fields: ['safetyLevel', 'isActive'] },
+        { fields: ['routeType'] },
+        { fields: ['createdById'] }
+    ]
 });
 
-// Index for location-based queries
-safeRouteSchema.index({ startLocation: '2dsphere' });
-safeRouteSchema.index({ endLocation: '2dsphere' });
-safeRouteSchema.index({ safetyLevel: 1, isActive: 1 });
-
-const SafeRoute = mongoose.models.SafeRoute || mongoose.model('SafeRoute', safeRouteSchema);
 export default SafeRoute;
 
 

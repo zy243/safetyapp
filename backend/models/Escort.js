@@ -1,92 +1,64 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const escortSchema = new mongoose.Schema({
-    id: {
-        type: String,
-        required: true,
-        unique: true
+class Escort extends Model {
+    async markComplete() {
+        this.status = 'completed';
+        this.completedAt = new Date();
+        return await this.save();
+    }
+
+    async markCancelled() {
+        this.status = 'cancelled';
+        this.completedAt = new Date();
+        return await this.save();
+    }
+
+    async markOverdue() {
+        this.status = 'overdue';
+        this.alertedAt = new Date();
+        return await this.save();
+    }
+
+    static async findOverdue() {
+        const now = new Date();
+        return await this.findAll({
+            where: {
+                status: 'active',
+                expectedEnd: { [sequelize.Op.lt]: now }
+            }
+        });
+    }
+}
+
+Escort.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    escortId: { type: DataTypes.STRING, allowNull: false, unique: true },
+    userName: { type: DataTypes.STRING, allowNull: false },
+    destination: { type: DataTypes.STRING, allowNull: false },
+    durationMinutes: { type: DataTypes.INTEGER, allowNull: false },
+    expectedEnd: { type: DataTypes.DATE, allowNull: false },
+    startTime: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    status: { 
+        type: DataTypes.ENUM('active', 'completed', 'cancelled', 'overdue'), 
+        defaultValue: 'active' 
     },
-    userName: {
-        type: String,
-        required: true
-    },
-    destination: {
-        type: String,
-        required: true
-    },
-    durationMinutes: {
-        type: Number,
-        required: true
-    },
-    expectedEnd: {
-        type: Date,
-        required: true
-    },
-    startTime: {
-        type: Date,
-        default: Date.now
-    },
-    status: {
-        type: String,
-        enum: ['active', 'completed', 'cancelled', 'overdue'],
-        default: 'active'
-    },
-    guardianEmails: [{
-        type: String,
-        trim: true,
-        lowercase: true
-    }],
-    shareToken: {
-        type: String,
-        required: true
-    },
-    completedAt: {
-        type: Date
-    },
-    alertedAt: {
-        type: Date
-    },
-    notes: String
+    guardianEmails: { type: DataTypes.JSON, defaultValue: [] },
+    shareToken: { type: DataTypes.STRING, allowNull: false },
+    completedAt: { type: DataTypes.DATE },
+    alertedAt: { type: DataTypes.DATE },
+    notes: { type: DataTypes.TEXT }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'escorts',
+    timestamps: true,
+    indexes: [
+        { fields: ['escortId'] },
+        { fields: ['userName'] },
+        { fields: ['status'] },
+        { fields: ['shareToken'] },
+        { fields: ['expectedEnd'] }
+    ]
 });
 
-// Indexes for better query performance
-escortSchema.index({ id: 1 });
-escortSchema.index({ userName: 1 });
-escortSchema.index({ status: 1 });
-escortSchema.index({ shareToken: 1 });
-escortSchema.index({ expectedEnd: 1 });
-
-// Static method to find overdue escorts
-escortSchema.statics.findOverdue = function () {
-    const now = new Date();
-    return this.find({
-        status: 'active',
-        expectedEnd: { $lt: now }
-    });
-};
-
-// Instance method to mark as complete
-escortSchema.methods.markComplete = function () {
-    this.status = 'completed';
-    this.completedAt = new Date();
-    return this.save();
-};
-
-// Instance method to mark as cancelled
-escortSchema.methods.markCancelled = function () {
-    this.status = 'cancelled';
-    this.completedAt = new Date();
-    return this.save();
-};
-
-// Instance method to mark as overdue
-escortSchema.methods.markOverdue = function () {
-    this.status = 'overdue';
-    this.alertedAt = new Date();
-    return this.save();
-};
-
-const Escort = mongoose.models.Escort || mongoose.model('Escort', escortSchema);
 export default Escort;

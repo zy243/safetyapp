@@ -1,3 +1,5 @@
+// File: ./config/constants.ts
+
 export const USER_ROLES = {
     STUDENT: 'student',
     STAFF: 'staff',

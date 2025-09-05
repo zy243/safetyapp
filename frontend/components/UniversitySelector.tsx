@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import GeofencingService, { University } from '../services/GeofencingService';
-
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.0.100:5000";
 interface UniversitySelectorProps {
   onUniversityChange: (university: University) => void;
   currentUniversity: University | null;

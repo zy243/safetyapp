@@ -2,9 +2,6 @@
   "expo": {
     "name": "UniSafe",
     "slug": "frontend",
-    "extra": {
-      "BACKEND_URL":  "http://localhost:5000"
-    },
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
@@ -15,7 +12,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.unisafe",
@@ -23,7 +22,11 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to location for safety features.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location in the background.",
-        "UIBackgroundModes": ["location", "audio", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "audio",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -31,7 +34,12 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION", "INTERNET"]
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "INTERNET"
+      ],
+      "package": "com.yourcompany.unisafe"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -44,9 +52,13 @@
           "icon": "./assets/images/logo.png",
           "color": "#FF0000"
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
-  
+    "extra": {
+      "BACKEND_URL": "http://192.168.0.170:5000",
+      "GOOGLE_MAPS_API_KEY": "AIzaSyCWVQznQKDcmgdKc6nWlEgqZlGkh0nKeFI"
+    },
     "notification": {
       "icon": "./assets/images/logo.png",
       "color": "#FF0000",

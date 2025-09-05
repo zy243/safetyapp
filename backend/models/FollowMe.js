@@ -1,72 +1,38 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const followMeSchema = new mongoose.Schema({
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    isActive: {
-        type: Boolean,
-        default: false
-    },
-    startedAt: {
-        type: Date,
-        default: Date.now
-    },
-    expiresAt: {
-        type: Date,
-        required: true
-    },
-    sharingWith: [{
-        userId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            required: true
-        },
-        addedAt: {
-            type: Date,
-            default: Date.now
-        },
-        isActive: {
-            type: Boolean,
-            default: true
-        }
-    }],
-    currentLocation: {
-        latitude: { type: Number, required: true },
-        longitude: { type: Number, required: true },
-        accuracy: Number,
-        timestamp: { type: Date, default: Date.now },
-        address: String
-    },
-    locationHistory: [{
-        latitude: Number,
-        longitude: Number,
-        accuracy: Number,
-        timestamp: { type: Date, default: Date.now },
-        address: String
-    }],
-    settings: {
-        updateInterval: { type: Number, default: 30 }, // seconds
-        maxHistoryPoints: { type: Number, default: 100 },
-        shareLocation: { type: Boolean, default: true },
-        shareAddress: { type: Boolean, default: true }
-    },
-    status: {
-        type: String,
-        enum: ['active', 'paused', 'stopped'],
-        default: 'active'
+class FollowMe extends Model {}
+
+FollowMe.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    isActive: { type: DataTypes.BOOLEAN, defaultValue: false },
+    startedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    expiresAt: { type: DataTypes.DATE, allowNull: false },
+    sharingWith: { type: DataTypes.JSON, defaultValue: [] },
+    currentLocationLat: { type: DataTypes.DECIMAL(10, 8) },
+    currentLocationLng: { type: DataTypes.DECIMAL(11, 8) },
+    currentLocationAccuracy: { type: DataTypes.DECIMAL(10, 2) },
+    currentLocationTimestamp: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    currentLocationAddress: { type: DataTypes.STRING },
+    locationHistory: { type: DataTypes.JSON, defaultValue: [] },
+    updateInterval: { type: DataTypes.INTEGER, defaultValue: 30 }, // seconds
+    maxHistoryPoints: { type: DataTypes.INTEGER, defaultValue: 100 },
+    shareLocation: { type: DataTypes.BOOLEAN, defaultValue: true },
+    shareAddress: { type: DataTypes.BOOLEAN, defaultValue: true },
+    status: { 
+        type: DataTypes.ENUM('active', 'paused', 'stopped'), 
+        defaultValue: 'active' 
     }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'follow_me',
+    timestamps: true,
+    indexes: [
+        { fields: ['userId', 'isActive'] },
+        { fields: ['expiresAt'] }
+    ]
 });
 
-// Indexes for efficient queries
-followMeSchema.index({ user: 1, isActive: 1 });
-followMeSchema.index({ 'sharingWith.userId': 1 });
-followMeSchema.index({ expiresAt: 1 });
-
-const FollowMe = mongoose.models.FollowMe || mongoose.model('FollowMe', followMeSchema);
 export default FollowMe;
 

@@ -3,7 +3,7 @@ const config = {
     PORT: process.env.PORT || 5000,
     NODE_ENV: process.env.NODE_ENV || 'development',
 
-    MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/campus-safety',
+    // MySQL configuration moved to database.js
 
     JWT_SECRET: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this',
     JWT_EXPIRE: process.env.JWT_EXPIRE || '7d',
@@ -27,6 +27,12 @@ const config = {
     BASE_URL: process.env.BASE_URL || 'http://localhost:5000',
     CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5000',
     FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5000',
+    MYSQL_HOST: process.env.MYSQL_HOST || ",
+    MYSQL_USER: process.env.MYSQL_USER || "root",
+    MYSQL_PASSWORD: process.env.MYSQL_PASSWORD || "",
+    MYSQL_DB: process.env.MYSQL_DB || "campus_safety",
+    MYSQL_PORT: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
+
 };
 
 export default config;

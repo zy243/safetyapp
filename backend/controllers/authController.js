@@ -1,5 +1,6 @@
 // controllers/authController.js
 import User from '../models/User.js';
+import { Op } from 'sequelize';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -28,12 +29,10 @@ export const googleAuthCallback = async (req, res) => {
 export const updatePrivacySettings = async (req, res) => {
     try {
         const { privacySettings } = req.body;
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { privacySettings },
-            { new: true }
-        ).select('-password -verificationToken -resetPasswordToken');
-
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.privacySettings = privacySettings;
+        await user.save();
         res.json({ success: true, message: 'Privacy settings updated successfully', data: user.privacySettings });
     } catch (error) {
         console.error('Update privacy settings error:', error);
@@ -43,13 +42,14 @@ export const updatePrivacySettings = async (req, res) => {
 export const updateProfile = async (req, res) => {
     try {
         const { name, phone, studentId } = req.body;
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { name, phone, studentId },
-            { new: true, runValidators: true }
-        ).select('-password -verificationToken -resetPasswordToken');
-
-        res.json({ success: true, message: 'Profile updated successfully', data: user });
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.name = name ?? user.name;
+        user.phone = phone ?? user.phone;
+        user.studentId = studentId ?? user.studentId;
+        await user.save();
+        const { password, verificationToken, resetPasswordToken, ...safeUser } = user.toJSON();
+        res.json({ success: true, message: 'Profile updated successfully', data: safeUser });
     } catch (error) {
         console.error('Update profile error:', error);
         res.status(500).json({ success: false, message: 'Server error updating profile' });
@@ -60,12 +60,10 @@ export const updateProfile = async (req, res) => {
 export const updatePreferences = async (req, res) => {
     try {
         const { preferences } = req.body;
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { preferences },
-            { new: true }
-        ).select('-password -verificationToken -resetPasswordToken');
-
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.preferences = preferences;
+        await user.save();
         res.json({ success: true, message: 'Preferences updated successfully', data: user.preferences });
     } catch (error) {
         console.error('Update preferences error:', error);
@@ -77,7 +75,7 @@ export const updatePreferences = async (req, res) => {
 export const resendVerificationEmail = async (req, res) => {
     try {
         const { email } = req.body;
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ where: { email } });
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'No user found with this email' });
@@ -87,7 +85,7 @@ export const resendVerificationEmail = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Email is already verified' });
         }
 
-        const verificationToken = jwt.sign({ id: user._id }, process.env.JWT_VERIFICATION_SECRET, { expiresIn: '1d' });
+        const verificationToken = jwt.sign({ id: user.id }, process.env.JWT_VERIFICATION_SECRET || JWT_SECRET, { expiresIn: '1d' });
         user.verificationToken = verificationToken;
         await user.save();
 
@@ -105,12 +103,10 @@ export const resendVerificationEmail = async (req, res) => {
 export const manageTrustedCircle = async (req, res) => {
     try {
         const { trustedCircle } = req.body;
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { trustedCircle },
-            { new: true }
-        ).populate('trustedCircle.contact');
-
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.trustedCircle = trustedCircle;
+        await user.save();
         res.json({ success: true, message: 'Trusted circle updated successfully', data: user.trustedCircle });
     } catch (error) {
         console.error('Manage trusted circle error:', error);
@@ -122,12 +118,10 @@ export const manageTrustedCircle = async (req, res) => {
 export const manageEmergencyContacts = async (req, res) => {
     try {
         const { emergencyContacts } = req.body;
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { emergencyContacts },
-            { new: true }
-        ).populate('emergencyContacts');
-
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        user.emergencyContacts = emergencyContacts;
+        await user.save();
         res.json({ success: true, message: 'Emergency contacts updated successfully', data: user.emergencyContacts });
     } catch (error) {
         console.error('Manage emergency contacts error:', error);
@@ -138,7 +132,7 @@ export const manageEmergencyContacts = async (req, res) => {
 
 export const getMe = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).select('-password');
+        const user = await User.findByPk(req.user.id, { attributes: { exclude: ['password'] } });
         res.status(200).json({ success: true, data: user });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Server error' });
@@ -158,7 +152,7 @@ export const googleAuth = async (req, res) => {
 
 // Generate JWT token
 export const generateToken = (user) => {
-    return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
+    return jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 };
 
 // ----------------------
@@ -167,28 +161,39 @@ export const generateToken = (user) => {
 export const register = async (req, res) => {
     try {
         const { name, email, password, role, studentId, phone } = req.body;
+        const hashed = await bcrypt.hash(password, 10);
 
         if (!validateEmail(email)) return res.status(400).json({ success: false, message: 'Invalid email' });
         if (!validatePassword(password)) return res.status(400).json({ success: false, message: 'Weak password' });
 
-        const existingUser = await User.findOne({ email });
+        const existingUser = await User.findOne({ where: { email } });
         if (existingUser) return res.status(400).json({ success: false, message: 'User already exists' });
 
-        const user = new User({ name, email, password, role: role || USER_ROLES.STUDENT, studentId, phone });
-        await user.save();
+        const user = await User.create({ name, email, password, role: role || USER_ROLES.STUDENT, studentId, phone });
 
-        const verificationToken = jwt.sign({ id: user._id }, process.env.JWT_VERIFICATION_SECRET, { expiresIn: '1d' });
-        user.verificationToken = verificationToken;
-        await user.save();
+        const autoVerify = String(process.env.AUTO_VERIFY_USERS).toLowerCase() === 'true';
+        const disableEmail = String(process.env.DISABLE_EMAIL).toLowerCase() === 'true';
 
-        const verificationUrl = `${FRONTEND_URL}/verify-email/${verificationToken}`;
-        await sendEmail(user.email, 'Verify your UniSafe account', `Click to verify: ${verificationUrl}`);
+        if (autoVerify) {
+            user.isVerified = true;
+            user.verificationToken = undefined;
+            await user.save();
+        } else {
+            const verificationToken = jwt.sign({ id: user._id }, process.env.JWT_VERIFICATION_SECRET || JWT_SECRET, { expiresIn: '1d' });
+            user.verificationToken = verificationToken;
+            await user.save();
+
+            if (!disableEmail) {
+                const verificationUrl = `${FRONTEND_URL}/verify-email/${verificationToken}`;
+                await sendEmail(user.email, 'Verify your UniSafe account', `Click to verify: ${verificationUrl}`);
+            }
+        }
 
         const token = generateToken(user);
 
         res.status(201).json({
             success: true,
-            message: 'Registration successful. Check email for verification.',
+            message: autoVerify ? 'Registration successful.' : (disableEmail ? 'Registration successful. Email sending is disabled.' : 'Registration successful. Check email for verification.'),
             data: { token, user }
         });
     } catch (error) {
@@ -200,9 +205,10 @@ export const register = async (req, res) => {
 export const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ where: { email } });
         if (!user) return res.status(401).json({ success: false, message: 'Invalid email or password' });
-        if (!user.isVerified) return res.status(401).json({ success: false, message: 'Email not verified' });
+        const autoVerify = String(process.env.AUTO_VERIFY_USERS).toLowerCase() === 'true';
+        if (!autoVerify && !user.isVerified) return res.status(401).json({ success: false, message: 'Email not verified' });
 
         const isPasswordValid = await user.comparePassword(password);
         if (!isPasswordValid) return res.status(401).json({ success: false, message: 'Invalid email or password' });
@@ -248,7 +254,7 @@ export const googleAuthMobile = async (req, res) => {
         const ticket = await googleClient.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
         const payload = ticket.getPayload();
 
-        let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email: payload.email }] });
+        let user = await User.findOne({ where: { email: payload.email } });
         if (!user) {
             user = await User.create({
                 googleId: payload.sub,
@@ -278,7 +284,7 @@ export const googleAuthMobile = async (req, res) => {
 export const verifyEmail = async (req, res) => {
     try {
         const { token } = req.params;
-        const user = await User.findOne({ verificationToken: token });
+        const user = await User.findOne({ where: { verificationToken: token } });
         if (!user) return res.status(400).json({ success: false, message: 'Invalid token' });
 
         user.isVerified = true;
@@ -298,12 +304,12 @@ export const verifyEmail = async (req, res) => {
 export const forgotPassword = async (req, res) => {
     try {
         const { email } = req.body;
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ where: { email } });
         if (!user) return res.status(404).json({ success: false, message: 'No user found' });
 
-        const resetToken = jwt.sign({ id: user._id }, process.env.JWT_RESET_SECRET, { expiresIn: '1h' });
+        const resetToken = jwt.sign({ id: user.id }, process.env.JWT_RESET_SECRET || JWT_SECRET, { expiresIn: '1h' });
         user.resetPasswordToken = resetToken;
-        user.resetPasswordExpires = Date.now() + 3600000;
+        user.resetPasswordExpires = new Date(Date.now() + 3600000);
         await user.save();
 
         const resetUrl = `${FRONTEND_URL}/reset-password/${resetToken}`;
@@ -319,7 +325,7 @@ export const resetPassword = async (req, res) => {
     try {
         const { token } = req.params;
         const { password } = req.body;
-        const user = await User.findOne({ resetPasswordToken: token, resetPasswordExpires: { $gt: Date.now() } });
+        const user = await User.findOne({ where: { resetPasswordToken: token, resetPasswordExpires: { [Op.gt]: new Date() } } });
         if (!user) return res.status(400).json({ success: false, message: 'Invalid or expired token' });
 
         user.password = password;

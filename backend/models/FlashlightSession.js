@@ -1,98 +1,81 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const flashlightSessionSchema = new mongoose.Schema({
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    duration: {
-        type: Number, // in seconds
-        required: true,
-        min: 30, // minimum 30 seconds
-        max: 3600 // maximum 1 hour
-    },
-    intensity: {
-        type: Number, // percentage 0-100
-        required: true,
-        min: 0,
-        max: 100
-    },
-    pattern: {
-        type: String,
-        enum: ['steady', 'strobe', 'sos', 'pulse', 'custom'],
-        default: 'steady'
-    },
-    customPattern: {
-        onDuration: Number, // milliseconds
-        offDuration: Number, // milliseconds
-        repeat: Number
-    },
-    status: {
-        type: String,
-        enum: ['active', 'stopped', 'completed', 'cancelled'],
-        default: 'active'
-    },
-    isEmergency: {
-        type: Boolean,
-        default: false
-    },
-    startedAt: {
-        type: Date,
-        default: Date.now
-    },
-    endedAt: Date,
-    batteryLevelAtStart: Number,
-    batteryLevelAtEnd: Number
-}, {
-    timestamps: true
-});
-
-// Indexes
-flashlightSessionSchema.index({ user: 1, status: 1 });
-flashlightSessionSchema.index({ createdAt: 1 });
-flashlightSessionSchema.index({ isEmergency: 1 });
-
-// Virtual for time remaining
-flashlightSessionSchema.virtual('timeRemaining').get(function () {
-    if (this.status !== 'active' || !this.startedAt) return 0;
-
-    const elapsed = (new Date() - this.startedAt) / 1000;
-    return Math.max(0, this.duration - elapsed);
-});
-
-// Virtual for isActive
-flashlightSessionSchema.virtual('isActive').get(function () {
-    return this.status === 'active' && this.timeRemaining > 0;
-});
-
-// Pre-save middleware to auto-complete expired sessions
-flashlightSessionSchema.pre('save', function (next) {
-    if (this.status === 'active' && this.timeRemaining <= 0) {
-        this.status = 'completed';
-        this.endedAt = new Date();
+class FlashlightSession extends Model {
+    get timeRemaining() {
+        if (this.status !== 'active' || !this.startedAt) return 0;
+        const elapsed = (new Date() - this.startedAt) / 1000;
+        return Math.max(0, this.duration - elapsed);
     }
-    next();
-});
 
-// Static method to find expired sessions
-flashlightSessionSchema.statics.findExpired = function () {
-    return this.find({
-        status: 'active',
-        startedAt: {
-            $lt: new Date(Date.now() - 3600000) // older than 1 hour
+    get isActive() {
+        return this.status === 'active' && this.timeRemaining > 0;
+    }
+
+    async stop() {
+        this.status = 'stopped';
+        this.endedAt = new Date();
+        return await this.save();
+    }
+
+    static async findExpired() {
+        return await this.findAll({
+            where: {
+                status: 'active',
+                startedAt: {
+                    [sequelize.Op.lt]: new Date(Date.now() - 3600000) // older than 1 hour
+                }
+            }
+        });
+    }
+}
+
+FlashlightSession.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    duration: { 
+        type: DataTypes.INTEGER, 
+        allowNull: false,
+        validate: { min: 30, max: 3600 } // 30 seconds to 1 hour
+    },
+    intensity: { 
+        type: DataTypes.INTEGER, 
+        allowNull: false,
+        validate: { min: 0, max: 100 } // percentage 0-100
+    },
+    pattern: { 
+        type: DataTypes.ENUM('steady', 'strobe', 'sos', 'pulse', 'custom'), 
+        defaultValue: 'steady' 
+    },
+    customPatternOnDuration: { type: DataTypes.INTEGER }, // milliseconds
+    customPatternOffDuration: { type: DataTypes.INTEGER }, // milliseconds
+    customPatternRepeat: { type: DataTypes.INTEGER },
+    status: { 
+        type: DataTypes.ENUM('active', 'stopped', 'completed', 'cancelled'), 
+        defaultValue: 'active' 
+    },
+    isEmergency: { type: DataTypes.BOOLEAN, defaultValue: false },
+    startedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    endedAt: { type: DataTypes.DATE },
+    batteryLevelAtStart: { type: DataTypes.INTEGER },
+    batteryLevelAtEnd: { type: DataTypes.INTEGER }
+}, {
+    sequelize,
+    tableName: 'flashlight_sessions',
+    timestamps: true,
+    indexes: [
+        { fields: ['userId', 'status'] },
+        { fields: ['createdAt'] },
+        { fields: ['isEmergency'] }
+    ],
+    hooks: {
+        beforeSave: (session) => {
+            if (session.status === 'active' && session.timeRemaining <= 0) {
+                session.status = 'completed';
+                session.endedAt = new Date();
+            }
         }
-    });
-};
-
-// Instance method to stop session
-flashlightSessionSchema.methods.stop = function () {
-    this.status = 'stopped';
-    this.endedAt = new Date();
-    return this.save();
-};
-
-// Prevent OverwriteModelError
-const FlashlightSession = mongoose.models.FlashlightSession || mongoose.model('FlashlightSession', flashlightSessionSchema);
+    }
+});
 
 export default FlashlightSession;

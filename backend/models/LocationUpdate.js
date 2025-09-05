@@ -1,165 +1,125 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const tripSchema = new mongoose.Schema({
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    destination: {
-        type: String,
-        required: true
-    },
-    startLocation: {
-        lat: Number,
-        lng: Number,
-        address: String
-    },
-    currentLocation: {
-        lat: Number,
-        lng: Number,
-        address: String,
-        timestamp: Date
-    },
-    eta: {
-        type: Number, // in minutes
-        required: true
-    },
-    checkInInterval: {
-        type: Number, // in minutes
-        default: 5
-    },
-    progress: {
-        type: Number,
-        min: 0,
-        max: 100,
-        default: 0
-    },
-    status: {
-        type: String,
-        enum: ['active', 'completed', 'cancelled'],
-        default: 'active'
-    },
-    trustedContacts: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    }],
-    notes: String,
-    startedAt: {
-        type: Date,
-        default: Date.now
-    },
-    completedAt: Date,
-    cancelledAt: Date,
-    route: {
-        polyline: String,
-        distance: Number, // in meters
-        duration: Number // in seconds
+class LocationUpdate extends Model {
+    get estimatedCompletion() {
+        if (!this.startedAt) return null;
+        const completionTime = new Date(this.startedAt);
+        completionTime.setMinutes(completionTime.getMinutes() + this.eta);
+        return completionTime;
     }
+
+    get timeRemaining() {
+        if (!this.startedAt || this.status !== 'active') return 0;
+        const elapsed = (new Date() - this.startedAt) / 60000; // minutes
+        return Math.max(0, this.eta - elapsed);
+    }
+
+    get isOverdue() {
+        if (this.status !== 'active' || !this.startedAt) return false;
+        const expectedEnd = new Date(this.startedAt);
+        expectedEnd.setMinutes(expectedEnd.getMinutes() + this.eta);
+        return new Date() > expectedEnd;
+    }
+
+    async updateProgress(newProgress, location = null) {
+        this.progress = Math.min(100, Math.max(0, newProgress));
+
+        if (location) {
+            this.currentLocationLat = location.lat;
+            this.currentLocationLng = location.lng;
+            this.currentLocationAddress = location.address;
+            this.currentLocationTimestamp = new Date();
+        }
+
+        if (this.progress >= 100 && this.status === 'active') {
+            this.status = 'completed';
+            this.completedAt = new Date();
+        }
+
+        return await this.save();
+    }
+
+    async addTrustedContact(contactId) {
+        const contacts = this.trustedContacts || [];
+        if (!contacts.includes(contactId)) {
+            contacts.push(contactId);
+            this.trustedContacts = contacts;
+        }
+        return await this.save();
+    }
+
+    async removeTrustedContact(contactId) {
+        const contacts = this.trustedContacts || [];
+        this.trustedContacts = contacts.filter(contact => contact !== contactId);
+        return await this.save();
+    }
+
+    static async findActiveByUser(userId) {
+        return await this.findAll({ 
+            where: { userId, status: 'active' },
+            order: [['createdAt', 'DESC']]
+        });
+    }
+
+    static async findByTrustedContact(contactId) {
+        return await this.findAll({
+            where: {
+                trustedContacts: sequelize.literal(`JSON_CONTAINS(trustedContacts, '${contactId}')`),
+                status: 'active'
+            }
+        });
+    }
+}
+
+LocationUpdate.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    destination: { type: DataTypes.STRING, allowNull: false },
+    startLocationLat: { type: DataTypes.DECIMAL(10, 8) },
+    startLocationLng: { type: DataTypes.DECIMAL(11, 8) },
+    startLocationAddress: { type: DataTypes.STRING },
+    currentLocationLat: { type: DataTypes.DECIMAL(10, 8) },
+    currentLocationLng: { type: DataTypes.DECIMAL(11, 8) },
+    currentLocationAddress: { type: DataTypes.STRING },
+    currentLocationTimestamp: { type: DataTypes.DATE },
+    eta: { type: DataTypes.INTEGER, allowNull: false }, // in minutes
+    checkInInterval: { type: DataTypes.INTEGER, defaultValue: 5 }, // in minutes
+    progress: { 
+        type: DataTypes.INTEGER, 
+        defaultValue: 0,
+        validate: { min: 0, max: 100 }
+    },
+    status: { 
+        type: DataTypes.ENUM('active', 'completed', 'cancelled'), 
+        defaultValue: 'active' 
+    },
+    trustedContacts: { type: DataTypes.JSON, defaultValue: [] },
+    notes: { type: DataTypes.TEXT },
+    startedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    completedAt: { type: DataTypes.DATE },
+    cancelledAt: { type: DataTypes.DATE },
+    routePolyline: { type: DataTypes.TEXT },
+    routeDistance: { type: DataTypes.INTEGER }, // in meters
+    routeDuration: { type: DataTypes.INTEGER } // in seconds
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'location_updates',
+    timestamps: true,
+    indexes: [
+        { fields: ['userId', 'status'] },
+        { fields: ['status', 'createdAt'] }
+    ],
+    hooks: {
+        beforeSave: (trip) => {
+            if (trip.status === 'completed' && !trip.completedAt) {
+                trip.completedAt = new Date();
+            }
+            if (trip.status === 'cancelled' && !trip.cancelledAt) {
+                trip.cancelledAt = new Date();
+            }
+        }
+    }
 });
 
-// Index for better query performance
-tripSchema.index({ user: 1, status: 1 });
-tripSchema.index({ status: 1, createdAt: 1 });
-tripSchema.index({ trustedContacts: 1 });
-
-// Virtual for estimated completion time
-tripSchema.virtual('estimatedCompletion').get(function () {
-    if (!this.startedAt) return null;
-    const completionTime = new Date(this.startedAt);
-    completionTime.setMinutes(completionTime.getMinutes() + this.eta);
-    return completionTime;
-});
-
-// Virtual for timeRemaining (in minutes)
-tripSchema.virtual('timeRemaining').get(function () {
-    if (!this.startedAt || this.status !== 'active') return 0;
-    const elapsed = (new Date() - this.startedAt) / 60000; // minutes
-    return Math.max(0, this.eta - elapsed);
-});
-
-// Virtual for isOverdue
-tripSchema.virtual('isOverdue').get(function () {
-    if (this.status !== 'active' || !this.startedAt) return false;
-    const expectedEnd = new Date(this.startedAt);
-    expectedEnd.setMinutes(expectedEnd.getMinutes() + this.eta);
-    return new Date() > expectedEnd;
-});
-
-// Pre-save middleware
-tripSchema.pre('save', function (next) {
-    if (this.status === 'completed' && !this.completedAt) {
-        this.completedAt = new Date();
-    }
-    if (this.status === 'cancelled' && !this.cancelledAt) {
-        this.cancelledAt = new Date();
-    }
-    next();
-});
-
-// Static method to find active trips for a user
-tripSchema.statics.findActiveByUser = function (userId) {
-    return this.find({ user: userId, status: 'active' })
-        .populate('trustedContacts', 'name email phone')
-        .sort({ createdAt: -1 });
-};
-
-// Static method to find trips by trusted contact
-tripSchema.statics.findByTrustedContact = function (contactId) {
-    return this.find({
-        trustedContacts: contactId,
-        status: 'active'
-    }).populate('user', 'name email phone').populate('trustedContacts', 'name email phone');
-};
-
-// Instance method to update progress
-tripSchema.methods.updateProgress = function (newProgress, location = null) {
-    this.progress = Math.min(100, Math.max(0, newProgress));
-
-    if (location) {
-        this.currentLocation = {
-            lat: location.lat,
-            lng: location.lng,
-            address: location.address,
-            timestamp: new Date()
-        };
-    }
-
-    if (this.progress >= 100 && this.status === 'active') {
-        this.status = 'completed';
-        this.completedAt = new Date();
-    }
-
-    return this.save();
-};
-
-// Instance method to add trusted contact
-tripSchema.methods.addTrustedContact = function (contactId) {
-    if (!this.trustedContacts.includes(contactId)) {
-        this.trustedContacts.push(contactId);
-    }
-    return this.save();
-};
-
-// Instance method to remove trusted contact
-tripSchema.methods.removeTrustedContact = function (contactId) {
-    this.trustedContacts = this.trustedContacts.filter(
-        contact => contact.toString() !== contactId.toString()
-    );
-    return this.save();
-};
-
-// Remove sensitive information from JSON output
-tripSchema.methods.toJSON = function () {
-    const tripObject = this.toObject();
-
-    // Remove internal fields if needed
-    delete tripObject.__v;
-
-    return tripObject;
-};
-
-const Trip = mongoose.models.Trip || mongoose.model('Trip', tripSchema);
-export default Trip;
+export default LocationUpdate;

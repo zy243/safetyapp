@@ -1,5 +1,9 @@
-# Database Configuration
-MONGO_URI=mongodb://localhost:27017/campus-safety
+# Database Configuration (MySQL)
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_DB=unisafe
+MYSQL_USER=root
+MYSQL_PASSWORD=
 
 # JWT Configuration
 JWT_SECRET=your-super-secret-jwt-key-here

@@ -30,11 +30,14 @@ export const auth = async (req, res, next) => {
             throw err;
         }
 
-        const user = await User.findById(payload.id).select('-password');
+        const user = await User.findByPk(payload.id, {
+            attributes: { exclude: ['password'] }
+        });
         if (!user) return res.status(401).json({ success: false, message: 'User not found' });
         if (user.status && user.status !== 'active') return res.status(403).json({ success: false, message: 'Account is not active' });
 
         req.user = user; // attach user to request
+        req.userId = user.id; // convenience for controllers using userId
         next();
     } catch (err) {
         console.error('Auth middleware error:', err);

@@ -1,84 +1,34 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const guardianSessionSchema = new mongoose.Schema({
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
+class GuardianSession extends Model {}
+
+GuardianSession.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    destination: { type: DataTypes.STRING, allowNull: false },
+    destinationLat: { type: DataTypes.DECIMAL(10, 8) },
+    destinationLng: { type: DataTypes.DECIMAL(11, 8) },
+    estimatedDuration: { type: DataTypes.INTEGER, allowNull: false }, // in minutes
+    trustedContacts: { type: DataTypes.JSON, defaultValue: [] },
+    checkIns: { type: DataTypes.JSON, defaultValue: [] },
+    currentStatus: { 
+        type: DataTypes.ENUM('active', 'completed', 'cancelled', 'overdue', 'emergency'), 
+        defaultValue: 'active' 
     },
-    destination: {
-        type: String,
-        required: true
-    },
-    destinationCoords: {
-        type: {
-            type: String,
-            enum: ['Point'],
-            default: 'Point'
-        },
-        coordinates: {
-            type: [Number],
-            required: true
-        }
-    },
-    estimatedDuration: {
-        type: Number, // in minutes
-        required: true
-    },
-    trustedContacts: [{
-        contact: { type: mongoose.Schema.Types.ObjectId, ref: 'TrustedContact' },
-        notified: { type: Boolean, default: false }
-    }],
-    checkIns: [{
-        location: {
-            type: {
-                type: String,
-                enum: ['Point'],
-                default: 'Point'
-            },
-            coordinates: [Number]
-        },
-        timestamp: { type: Date, default: Date.now },
-        status: { type: String, enum: ['on_time', 'delayed', 'emergency'], default: 'on_time' },
-        message: String
-    }],
-    currentStatus: {
-        type: String,
-        enum: ['active', 'completed', 'cancelled', 'overdue', 'emergency'],
-        default: 'active'
-    },
-    startTime: {
-        type: Date,
-        default: Date.now
-    },
-    endTime: Date,
-    estimatedArrival: Date,
-    actualArrival: Date,
-    routeDeviations: [{
-        timestamp: Date,
-        location: {
-            type: {
-                type: String,
-                enum: ['Point'],
-                default: 'Point'
-            },
-            coordinates: [Number]
-        },
-        distanceFromRoute: Number // in meters
-    }],
-    alertsSent: [{
-        type: {
-            type: String,
-            enum: ['route_deviation', 'unusual_stop', 'overdue', 'emergency']
-        },
-        timestamp: Date,
-        message: String,
-        sentTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'TrustedContact' }]
-    }]
+    startTime: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    endTime: { type: DataTypes.DATE },
+    estimatedArrival: { type: DataTypes.DATE },
+    actualArrival: { type: DataTypes.DATE },
+    routeDeviations: { type: DataTypes.JSON, defaultValue: [] },
+    alertsSent: { type: DataTypes.JSON, defaultValue: [] }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'guardian_sessions',
+    timestamps: true,
+    indexes: [
+        { fields: ['userId', 'currentStatus'] }
+    ]
 });
 
-guardianSessionSchema.index({ user: 1, currentStatus: 1 });
-
-export default mongoose.model('GuardianSession', guardianSessionSchema);
+export default GuardianSession;

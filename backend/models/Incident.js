@@ -1,103 +1,64 @@
 ﻿// models/Incident.js
-import mongoose from 'mongoose';
-import { INCIDENT_TYPES } from '../config/constants.js';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
+class Incident extends Model {
+    get isResolved() {
+        return this.status === 'resolved';
+    }
 
-const { Schema } = mongoose;
+    async markResolved() {
+        this.status = 'resolved';
+        this.resolvedAt = new Date();
+        return await this.save();
+    }
+}
 
-const incidentSchema = new mongoose.Schema({
-    type: {
-        type: String,
-        enum: Object.values(INCIDENT_TYPES),
-        required: true,
-        default: 'other'
+Incident.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    type: { 
+        type: DataTypes.STRING, 
+        allowNull: false, 
+        defaultValue: 'other' 
     },
-    description: {
-        type: String,
-        required: true,
-        trim: true
+    description: { type: DataTypes.TEXT, allowNull: false },
+    locationLat: { type: DataTypes.DECIMAL(10, 8) },
+    locationLng: { type: DataTypes.DECIMAL(11, 8) },
+    locationAddress: { type: DataTypes.STRING },
+    reportedBy: { type: DataTypes.INTEGER.UNSIGNED },
+    reporter: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    title: { type: DataTypes.STRING, allowNull: false },
+    coordinates: { type: DataTypes.JSON, defaultValue: [] },
+    address: { type: DataTypes.STRING },
+    building: { type: DataTypes.STRING },
+    floor: { type: DataTypes.STRING },
+    isAnonymous: { type: DataTypes.BOOLEAN, defaultValue: false },
+    media: { type: DataTypes.JSON, defaultValue: [] },
+    status: { 
+        type: DataTypes.ENUM('reported', 'under_investigation', 'resolved', 'false_alarm'), 
+        defaultValue: 'reported' 
     },
-    location: {
-        lat: Number,
-        lng: Number,
-        address: String
+    severity: { 
+        type: DataTypes.ENUM('low', 'medium', 'high'), 
+        defaultValue: 'medium' 
     },
-    reportedBy: {
-        type: Schema.Types.ObjectId,
-        ref: 'User'
+    assignedTo: { type: DataTypes.INTEGER.UNSIGNED },
+    priority: { 
+        type: DataTypes.ENUM('low', 'medium', 'high', 'critical'), 
+        defaultValue: 'medium' 
     },
-    reporter: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    title: {
-        type: String,
-        required: true,
-        trim: true
-    },
-    coordinates: {
-        type: [Number],
-        required: true
-    },
-    address: String,
-    building: String,
-    floor: String,
-
-    // 👇 these fields were misplaced
-    isAnonymous: {
-        type: Boolean,
-        default: false
-    },
-    media: [{
-        type: String // URLs to attached media
-    }],
-
-    status: {
-        type: String,
-        enum: ['reported', 'under_investigation', 'resolved', 'false_alarm'],
-        default: 'reported'
-    },
-    severity: {
-        type: String,
-        enum: ['low', 'medium', 'high'],
-        default: 'medium'
-    },
-    assignedTo: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-    },
-    priority: {
-        type: String,
-        enum: ['low', 'medium', 'high', 'critical'],
-        default: 'medium'
-    },
-    notes: String,
-    resolvedAt: Date
+    notes: { type: DataTypes.TEXT },
+    resolvedAt: { type: DataTypes.DATE }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'incidents',
+    timestamps: true,
+    indexes: [
+        { fields: ['status', 'priority'] },
+        { fields: ['reportedBy'] },
+        { fields: ['locationLat', 'locationLng'] },
+        { fields: ['type', 'status'] }
+    ]
 });
 
-
-// ===== Indexes (duplicates removed) =====
-incidentSchema.index({ status: 1, priority: 1 });
-incidentSchema.index({ reportedBy: 1 });
-incidentSchema.index({ 'location.lat': 1, 'location.lng': 1 });
-incidentSchema.index({ location: '2dsphere' });
-incidentSchema.index({ type: 1, status: 1 });
-
-// ===== Virtuals =====
-incidentSchema.virtual('isResolved').get(function () {
-    return this.status === 'resolved';
-});
-
-// ===== Methods =====
-incidentSchema.methods.markResolved = function () {
-    this.status = 'resolved';
-    this.resolvedAt = new Date();
-    return this.save();
-};
-
-// ===== Prevent OverwriteModelError =====
-const Incident = mongoose.models.Incident || mongoose.model('Incident', incidentSchema);
 export default Incident;

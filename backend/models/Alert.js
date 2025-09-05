@@ -1,35 +1,29 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const alertSchema = new mongoose.Schema({
-    id: {
-        type: String,
-        required: true,
-        unique: true
+class Alert extends Model {}
+
+Alert.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    type: { 
+        type: DataTypes.ENUM('escort_overdue', 'sos', 'checkin_missed', 'safety_alert'), 
+        allowNull: false 
     },
-    type: {
-        type: String,
-        required: true,
-        enum: ['escort_overdue', 'sos', 'checkin_missed', 'safety_alert']
-    },
-    message: {
-        type: String,
-        required: true
-    },
-    sessionId: String,
-    guardians: [String],
-    resolved: {
-        type: Boolean,
-        default: false
-    },
-    resolvedAt: Date,
-    resolvedBy: String
+    message: { type: DataTypes.TEXT, allowNull: false },
+    sessionId: { type: DataTypes.STRING },
+    guardians: { type: DataTypes.JSON, defaultValue: [] },
+    resolved: { type: DataTypes.BOOLEAN, defaultValue: false },
+    resolvedAt: { type: DataTypes.DATE },
+    resolvedBy: { type: DataTypes.STRING }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'alerts',
+    timestamps: true,
+    indexes: [
+        { fields: ['type'] },
+        { fields: ['sessionId'] },
+        { fields: ['resolved'] }
+    ]
 });
 
-alertSchema.index({ type: 1 });
-alertSchema.index({ sessionId: 1 });
-alertSchema.index({ resolved: 1 });
-
-const Alert = mongoose.models.Alert || mongoose.model('Alert', alertSchema);
 export default Alert;

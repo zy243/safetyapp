@@ -365,7 +365,7 @@ REACT_APP_SOCKET_URL=http://localhost:5000
 
 1. Check browser console for errors
 2. Verify backend server is running
-3. Check MongoDB connection
+3. Check MySQL connection
 4. Verify environment variables
 5. Check email service configuration
 

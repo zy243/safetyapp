@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode, Audio } from "expo-av";
 import { useCallback } from "react";
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -18,6 +19,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.0.100:5000";
 import * as ImagePicker from 'expo-image-picker';
 import type { ComponentProps } from "react";
 import { startRecording, stopRecording, convertSpeechToText } from '../../services/speech';
@@ -218,9 +220,11 @@ const MediaDisplay = ({ media }: { media: { uri: string; type: "image" | "video"
 
 export default function ReportScreen() {
   {/*Speak page title on load for accessibility*/ }
-  React.useEffect(() => {
-    speakPageTitle('Report Incidents');
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      speakPageTitle('Report Incidents');
+    }, [])
+  );
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);

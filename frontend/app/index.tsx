@@ -1,193 +1,216 @@
-import { makeRedirectUri } from "expo-auth-session";
+﻿import { makeRedirectUri } from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
-import { 
-  Alert, 
-  StyleSheet, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  View, 
-  KeyboardAvoidingView, 
-  Platform,
-  SafeAreaView 
+import {
+    Alert,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView，
+    Button
 } from "react-native";
+import { Link } from "expo-router";
+
+
+WebBrowser.maybeCompleteAuthSession();
+export default function HomeScreen() {
+    return (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+            <Text style={{ fontSize: 20, marginBottom: 16 }}>Welcome to UniSafe 🚀</Text>
+            <Link href="/guardians" asChild>
+                <Button title="Go to Guardians" />
+            </Link>
+        </View>
+    );
+}
 
 export default function Index() {
-  const router = useRouter();
-  const [role, setRole] = useState<"student" | "staff">("student");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+    const router = useRouter();
+    const [role, setRole] = useState<"student" | "staff">("student");
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
-  WebBrowser.maybeCompleteAuthSession();
-  const redirectUri = makeRedirectUri();
-  const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_GOOGLE_CLIENT_ID";
-  const [request, response, promptAsync] = Google.useAuthRequest({ 
-    clientId, 
-    scopes: ["profile", "email"], 
-    redirectUri 
-  });
+    const redirectUri = makeRedirectUri();
+    const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_GOOGLE_CLIENT_ID";
+    const [request, response, promptAsync] = Google.useAuthRequest({
+        clientId,
+        scopes: ["profile", "email"],
+        redirectUri
+    });
 
-  useEffect(() => {
-    if (response?.type === "success" && response.authentication?.accessToken) {
-      // TODO: send token + role to backend
-      router.replace("/(tabs)");
-    } else if (response?.type === "error") {
-      Alert.alert("Authentication failed", "Google sign-in failed. Please try again.");
+    // ✅ Handle Google login (store user locally instead of backend)
+    useEffect(() => {
+        if (response?.type === "success" && response.authentication?.accessToken) {
+            saveUser({ email: "google_user@example.com", password: "", role });
+            router.replace("/(tabs)");
+        } else if (response?.type === "error") {
+            Alert.alert("Authentication failed", "Google sign-in failed. Please try again.");
+        }
+    }, [response, router]);
+
+    function validate(): string | null {
+        if (!email.trim()) return "Email is required";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email";
+        if (!password) return "Password is required";
+        if (password.length < 6) return "Password must be at least 6 characters";
+        return null;
     }
-  }, [response, router]);
 
-  function validate(): string | null {
-    if (!email.trim()) return "Email is required";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email";
-    if (!password) return "Password is required";
-    if (password.length < 6) return "Password must be at least 6 characters";
-    return null;
-  }
-
-  async function onEmailLogin() {
-    const error = validate();
-    if (error) {
-      Alert.alert("Invalid input", error);
-      return;
+    // ✅ Save user into AsyncStorage
+    async function saveUser(user: { email: string; password: string; role: string }) {
+        const existing = JSON.parse(await AsyncStorage.getItem("users") || "[]");
+        const updated = [...existing.filter((u: any) => u.email !== user.email), user];
+        await AsyncStorage.setItem("users", JSON.stringify(updated));
+        await AsyncStorage.setItem("currentUser", JSON.stringify(user));
     }
-    try {
-      setIsSubmitting(true);
-      // TODO: call backend with { role, email, password }
-      await new Promise((r) => setTimeout(r, 800));
-      router.replace("/(tabs)");
-    } catch (e) {
-      Alert.alert("Login failed", "Please try again.");
-    } finally {
-      setIsSubmitting(false);
+
+    // ✅ Load users from storage
+    async function loadUsers() {
+        return JSON.parse(await AsyncStorage.getItem("users") || "[]");
     }
-  }
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardAvoid}
-      >
-        <View style={styles.container}>
-          <View style={styles.hero}>
-            <TouchableOpacity 
-              activeOpacity={0.8} 
-              onPress={() => router.push("/(tabs)/profile")}
-              accessibilityLabel="UniSafe logo"
-            > 
-              <Image
-                source={require("../assets/images/logo.png")}
-                style={styles.logo}
-                contentFit="cover"
-                transition={200}
-              />
-            </TouchableOpacity>
-            <Text style={styles.subtitle}>Your safety. Your community. One app.</Text>
-          </View>
+    // ✅ Email login without backend
+    async function onEmailLogin() {
+        const error = validate();
+        if (error) {
+            Alert.alert("Invalid input", error);
+            return;
+        }
+        try {
+            setIsSubmitting(true);
+            const users = await loadUsers();
+            const user = users.find((u: any) => u.email === email && u.password === password);
 
-          <View style={styles.cta}>
-            <View style={styles.roleRow}>
-              <TouchableOpacity 
-                style={[styles.roleBtn, role === "student" && styles.roleSelected]} 
-                onPress={() => setRole("student")}
-                accessibilityLabel="Select student role"
-                accessibilityRole="button"
-              >
-                <Text style={[styles.roleText, role === "student" && styles.roleTextSelected]}>Student</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.roleBtn, role === "staff" && styles.roleSelected]} 
-                onPress={() => setRole("staff")}
-                accessibilityLabel="Select staff role"
-                accessibilityRole="button"
-              >
-                <Text style={[styles.roleText, role === "staff" && styles.roleTextSelected]}>Staff</Text>
-              </TouchableOpacity>
-            </View>
+            if (user) {
+                await AsyncStorage.setItem("currentUser", JSON.stringify(user));
+                router.replace("/(tabs)");
+            } else {
+                Alert.alert("Login failed", "User not found. Please sign up first.");
+            }
+        } catch (e) {
+            Alert.alert("Login failed", "Please try again.");
+        } finally {
+            setIsSubmitting(false);
+        }
+    }
 
-            <TextInput 
-              style={styles.input} 
-              placeholder="Email" 
-              autoCapitalize="none" 
-              keyboardType="email-address" 
-              value={email} 
-              onChangeText={setEmail} 
-              placeholderTextColor="#999" 
-              accessibilityLabel="Email input"
-            />
-            
-            <View style={styles.passwordContainer}>
-              <TextInput 
-                style={styles.passwordInput} 
-                placeholder="Password" 
-                secureTextEntry={!showPassword}
-                value={password} 
-                onChangeText={setPassword} 
-                placeholderTextColor="#999"
-                accessibilityLabel="Password input"
-              />
-              <TouchableOpacity 
-                style={styles.showPasswordBtn}
-                onPress={() => setShowPassword(!showPassword)}
-                accessibilityLabel={showPassword ? "Hide password" : "Show password"}
-              >
-                <Text style={styles.showPasswordText}>
-                  {showPassword ? "Hide" : "Show"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity 
-              style={styles.primaryBtn} 
-              onPress={onEmailLogin} 
-              disabled={isSubmitting}
-              accessibilityLabel="Sign in"
-              accessibilityRole="button"
+    return (
+        <SafeAreaView style={styles.safeArea}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={styles.keyboardAvoid}
             >
-              <Text style={styles.primaryBtnText}>{isSubmitting ? "Signing in..." : "Sign In"}</Text>
-            </TouchableOpacity>
+                <View style={styles.container}>
+                    <View style={styles.hero}>
+                        <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={() => router.push("/(tabs)/profile")}
+                            accessibilityLabel="UniSafe logo"
+                        >
+                            <Image
+                                source={require("../assets/images/logo.png")}
+                                style={styles.logo}
+                                contentFit="cover"
+                                transition={200}
+                            />
+                        </TouchableOpacity>
+                        <Text style={styles.subtitle}>Your safety. Your community. One app.</Text>
+                    </View>
 
-            <TouchableOpacity 
-              style={[styles.googleBtn, (!request) && styles.buttonDisabled]} 
-              onPress={() => promptAsync()} 
-              disabled={!request}
-              accessibilityLabel="Continue with Google"
-              accessibilityRole="button"
-            >
-              <Image 
-                source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }} 
-                style={styles.googleIcon} 
-              />
-              <Text style={styles.googleBtnText}>
-                Continue with Google
-              </Text>
-            </TouchableOpacity>
+                    <View style={styles.cta}>
+                        <View style={styles.roleRow}>
+                            <TouchableOpacity
+                                style={[styles.roleBtn, role === "student" && styles.roleSelected]}
+                                onPress={() => setRole("student")}
+                            >
+                                <Text style={[styles.roleText, role === "student" && styles.roleTextSelected]}>Student</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.roleBtn, role === "staff" && styles.roleSelected]}
+                                onPress={() => setRole("staff")}
+                            >
+                                <Text style={[styles.roleText, role === "staff" && styles.roleTextSelected]}>Staff</Text>
+                            </TouchableOpacity>
+                        </View>
 
-            <Text 
-              style={styles.link} 
-              onPress={() => router.push("/(auth)/signup")}
-              accessibilityRole="link"
-            >
-              New to UniSafe? Sign up
-            </Text>
-          </View>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Email"
+                            autoCapitalize="none"
+                            keyboardType="email-address"
+                            value={email}
+                            onChangeText={setEmail}
+                            placeholderTextColor="#999"
+                        />
 
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              By continuing, you agree to our Terms of Service and Privacy Policy
-            </Text>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+                        <View style={styles.passwordContainer}>
+                            <TextInput
+                                style={styles.passwordInput}
+                                placeholder="Password"
+                                secureTextEntry={!showPassword}
+                                value={password}
+                                onChangeText={setPassword}
+                                placeholderTextColor="#999"
+                            />
+                            <TouchableOpacity
+                                style={styles.showPasswordBtn}
+                                onPress={() => setShowPassword(!showPassword)}
+                            >
+                                <Text style={styles.showPasswordText}>
+                                    {showPassword ? "Hide" : "Show"}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.primaryBtn}
+                            onPress={onEmailLogin}
+                            disabled={isSubmitting}
+                        >
+                            <Text style={styles.primaryBtnText}>{isSubmitting ? "Signing in..." : "Sign In"}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[styles.googleBtn, (!request) && styles.buttonDisabled]}
+                            onPress={() => promptAsync()}
+                            disabled={!request}
+                        >
+                            <Image
+                                source={{ uri: 'https://developers.google.com/identity/images/g-logo.png' }}
+                                style={styles.googleIcon}
+                            />
+                            <Text style={styles.googleBtnText}>
+                                Continue with Google
+                            </Text>
+                        </TouchableOpacity>
+
+                        <Text
+                            style={styles.link}
+                            onPress={() => router.push("/(auth)/signup")}
+                        >
+                            New to UniSafe? Sign up
+                        </Text>
+                    </View>
+
+                    <View style={styles.footer}>
+                        <Text style={styles.footerText}>
+                            By continuing, you agree to our Terms of Service and Privacy Policy
+                        </Text>
+                    </View>
+                </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({

@@ -1,17 +1,29 @@
-import mongoose from 'mongoose';
-const Schema = mongoose.Schema;
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const DeviceSchema = new Schema({
-    user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    deviceId: { type: String, required: true }, // client-generated device id
-    platform: { type: String, enum: ['android', 'ios', 'web'], default: 'web' },
-    pushToken: { type: String, default: '' }, // for push notifications
-    createdAt: { type: Date, default: Date.now },
-    lastSeenAt: { type: Date, default: Date.now }
+class Device extends Model {}
+
+Device.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    deviceId: { type: DataTypes.STRING, allowNull: false }, // client-generated device id
+    platform: { 
+        type: DataTypes.ENUM('android', 'ios', 'web'), 
+        defaultValue: 'web' 
+    },
+    pushToken: { type: DataTypes.STRING, defaultValue: '' }, // for push notifications
+    lastSeenAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
+}, {
+    sequelize,
+    tableName: 'devices',
+    timestamps: true,
+    indexes: [
+        { 
+            fields: ['deviceId', 'userId'], 
+            unique: true 
+        }
+    ]
 });
 
-DeviceSchema.index({ deviceId: 1, user: 1 }, { unique: true });
-
-const Device = mongoose.models.Device || mongoose.model('Device', DeviceSchema);
 export default Device;
 

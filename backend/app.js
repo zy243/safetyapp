@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import mongoSanitize from 'express-mongo-sanitize';
+// MongoDB sanitization removed - using MySQL now
 import xss from 'xss-clean';
 import hpp from 'hpp';
 import cookieParser from 'cookie-parser';
@@ -44,11 +44,30 @@ const app = express();
 // ---------------------------
 app.use(helmet());
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: (origin, callback) => {
+        const allowedOrigins = [
+            process.env.FRONTEND_URL,
+            process.env.CORS_ORIGIN,
+            'http://localhost:19006',
+            'http://localhost:3000',
+            'http://192.168.0.170:19006',
+            'http://192.168.0.170:3000'
+        ].filter(Boolean);
+
+        // Allow non-browser requests (like mobile apps / curl) where origin may be undefined
+        if (!origin) return callback(null, true);
+
+        // Allow any Expo dev client URLs (exp:// scheme) and direct IPs for LAN
+        const isExpoDev = origin.startsWith('exp://') || origin.startsWith('@exp://');
+        const isAllowed = isExpoDev || allowedOrigins.some(o => origin === o || origin.startsWith(o));
+
+        if (isAllowed) return callback(null, true);
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true
 }));
 app.use(compression());
-app.use(mongoSanitize());
+// app.use(mongoSanitize()); // MongoDB sanitization removed
 app.use(xss());
 app.use(hpp());
 

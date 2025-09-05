@@ -1,53 +1,37 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const checkinSchema = new mongoose.Schema({
-    trip: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Trip',
-        required: true
+class Checkin extends Model {}
+
+Checkin.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    tripId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    scheduledFor: { type: DataTypes.DATE, allowNull: false },
+    status: { 
+        type: DataTypes.ENUM('pending', 'completed', 'missed', 'emergency'), 
+        defaultValue: 'pending' 
     },
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true
-    },
-    scheduledFor: {
-        type: Date,
-        required: true
-    },
-    status: {
-        type: String,
-        enum: ['pending', 'completed', 'missed', 'emergency'],
-        default: 'pending'
-    },
-    completedAt: Date,
-    response: {
-        isSafe: Boolean,
-        message: String,
-        location: {
-            lat: Number,
-            lng: Number,
-            address: String
-        }
-    },
-    reminderSent: {
-        type: Boolean,
-        default: false
-    },
-    reminderSentAt: Date,
-    notificationSent: {
-        type: Boolean,
-        default: false
-    },
-    notificationSentAt: Date
+    completedAt: { type: DataTypes.DATE },
+    responseIsSafe: { type: DataTypes.BOOLEAN },
+    responseMessage: { type: DataTypes.TEXT },
+    responseLocationLat: { type: DataTypes.DECIMAL(10, 8) },
+    responseLocationLng: { type: DataTypes.DECIMAL(11, 8) },
+    responseLocationAddress: { type: DataTypes.STRING },
+    reminderSent: { type: DataTypes.BOOLEAN, defaultValue: false },
+    reminderSentAt: { type: DataTypes.DATE },
+    notificationSent: { type: DataTypes.BOOLEAN, defaultValue: false },
+    notificationSentAt: { type: DataTypes.DATE }
 }, {
-    timestamps: true
+    sequelize,
+    tableName: 'checkins',
+    timestamps: true,
+    indexes: [
+        { fields: ['tripId'] },
+        { fields: ['userId'] },
+        { fields: ['scheduledFor'] },
+        { fields: ['status'] }
+    ]
 });
-
-// Indexes, virtuals, methods, and statics omitted for brevity
-// Keep your existing ones
-
-// Prevent OverwriteModelError
-const Checkin = mongoose.models.Checkin || mongoose.model('Checkin', checkinSchema);
 
 export default Checkin;

@@ -1,13 +1,28 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const CallLogSchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    sos: { type: mongoose.Schema.Types.ObjectId, ref: 'SOSAlert', default: null },
-    type: { type: String, enum: ['voice', 'video', 'manual'], default: 'voice' },
-    providerResponse: { type: mongoose.Schema.Types.Mixed },
-    createdAt: { type: Date, default: Date.now }
+class CallLog extends Model {}
+
+CallLog.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    sosId: { type: DataTypes.INTEGER.UNSIGNED },
+    type: { 
+        type: DataTypes.ENUM('voice', 'video', 'manual'), 
+        defaultValue: 'voice' 
+    },
+    providerResponse: { type: DataTypes.JSON },
+    createdAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
+}, {
+    sequelize,
+    tableName: 'call_logs',
+    timestamps: false,
+    indexes: [
+        { fields: ['userId'] },
+        { fields: ['sosId'] },
+        { fields: ['type'] }
+    ]
 });
 
-const CallLog = mongoose.models.CallLog || mongoose.model('CallLog', CallLogSchema);
 export default CallLog;
 

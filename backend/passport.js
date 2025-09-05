@@ -5,16 +5,21 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Configure Google OAuth Strategy
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,         // Web client ID from Google Cloud
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET, // Client secret from Google Cloud
-    callbackURL: '/auth/google/callback',          // Redirect URL after login
-}, (accessToken, refreshToken, profile, done) => {
-    // You can save user info to database here if needed
-    // Example: User.findOrCreate({ googleId: profile.id }, (err, user) => done(err, user));
-    done(null, profile);
-}));
+// Configure Google OAuth Strategy (optional in dev)
+const clientID = process.env.GOOGLE_CLIENT_ID;
+const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+if (clientID && clientSecret) {
+    passport.use(new GoogleStrategy({
+        clientID,
+        clientSecret,
+        callbackURL: '/auth/google/callback',
+    }, (accessToken, refreshToken, profile, done) => {
+        done(null, profile);
+    }));
+} else {
+    console.warn('Google OAuth not configured: Missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET');
+}
 
 // Serialize user into session
 passport.serializeUser((user, done) => {

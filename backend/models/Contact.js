@@ -1,33 +1,25 @@
 // models/Contact.js
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
 
-const contactSchema = new mongoose.Schema(
-    {
-        user: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            required: true
-        },
-        name: {
-            type: String,
-            required: true
-        },
-        phone: {
-            type: String,
-            required: true
-        },
-        email: String,
-        relationship: String,
-        isPrimary: {
-            type: Boolean,
-            default: false
-        }
-    },
-    {
-        timestamps: true
-    }
-);
+class Contact extends Model {}
 
-const Contact = mongoose.models.Contact || mongoose.model('Contact', contactSchema);
+Contact.init({
+    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+    name: { type: DataTypes.STRING, allowNull: false },
+    phone: { type: DataTypes.STRING, allowNull: false },
+    email: { type: DataTypes.STRING },
+    relationship: { type: DataTypes.STRING },
+    isPrimary: { type: DataTypes.BOOLEAN, defaultValue: false }
+}, {
+    sequelize,
+    tableName: 'contacts',
+    timestamps: true,
+    indexes: [
+        { fields: ['userId'] }
+    ]
+});
+
 export default Contact;
 

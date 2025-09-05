@@ -1,36 +1,31 @@
-import mongoose from 'mongoose';
+import { DataTypes, Model } from 'sequelize';
+import { sequelize } from '../config/database.js';
+import User from './User.js';
 
-const trustedContactSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  name: {
-    type: String,
-    required: true
-  },
-  phone: {
-    type: String,
-    required: true
-  },
-  email: String,
-  relationship: {
-    type: String,
-    required: true
-  },
-  isPrimary: {
-    type: Boolean,
-    default: false
-  },
-  notificationsEnabled: {
-    type: Boolean,
-    default: true
-  }
-}, {
-  timestamps: true
-});
+class TrustedContact extends Model { }
 
-trustedContactSchema.index({ user: 1 });
+TrustedContact.init(
+    {
+        id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
+        userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+        name: { type: DataTypes.STRING, allowNull: false },
+        phone: { type: DataTypes.STRING, allowNull: false },
+        email: { type: DataTypes.STRING },
+        relationship: { type: DataTypes.STRING, allowNull: false },
+        isPrimary: { type: DataTypes.BOOLEAN, defaultValue: false },
+        notificationsEnabled: { type: DataTypes.BOOLEAN, defaultValue: true },
+        isOnline: { type: DataTypes.BOOLEAN, defaultValue: false },
+    },
+    {
+        sequelize,
+        tableName: 'trusted_contacts',
+        timestamps: true,
+        indexes: [{ fields: ['userId'] }],
+    }
+);
 
-export default mongoose.model('TrustedContact', trustedContactSchema);
+// Associations
+User.hasMany(TrustedContact, { foreignKey: 'userId', as: 'trustedContacts' });
+TrustedContact.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+export default TrustedContact;
