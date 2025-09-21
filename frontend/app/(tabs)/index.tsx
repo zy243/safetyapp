@@ -1,1458 +1,1622 @@
-import React, { useState, useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    ScrollView,
-    Alert,
-    SafeAreaView,
-    Dimensions,
-    Modal,
-    Linking,
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  ScrollView, 
+  StyleSheet, 
+  Alert, 
+  TouchableOpacity, 
+  View, 
+  Text, 
+  Linking,
+  Image,
+  Animated,
+  Easing,
+  Platform,
+  StatusBar
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import * as Haptics from 'expo-haptics';
+import { SafeAreaView, Edge } from 'react-native-safe-area-context';
+import { Dimensions } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router, useFocusEffect } from 'expo-router';
+import Header from '../../components/Header';
+import SafetyAlerts from '../../components/SafetyAlerts';
+import SOSModal from '../../components/Modals/SOSModal';
+import PostIncidentResourceScreen from '../../components/PostIncidentResourceScreen';
+import ReasonForm from '../../components/ReasonForm';
+import NotificationsModal from '../../components/Modals/NotificationsModal';
+import ActivityModal from '../../components/Modals/ActivityModal';
+import DiscreetAlarmModal from '../../components/Modals/DiscreetAlarmModal';
+import HelpdeskModal from '../../components/Modals/HelpdeskModal';
+import FollowMeButton from '../../components/FollowMeButton';
+import usePermissions from '../hooks/usePermissions';
+import { soundAlarmService } from '../../services/SoundAlarmService';
+import useLocation from '../hooks/useLocation';
+import { speakPageTitle, speakButtonAction } from '../../services/SpeechService';
+import { triggerSOSActions, captureEmergencyMedia, takeEmergencyPhoto, canSaveToGallery } from '../../services/SOSService';
+import { useSOSContext } from '../../contexts/SOSContext';
+import { useAlarmContext } from '../../contexts/AlarmContext';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { MaterialIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { Camera } from "expo-camera";
-import { CameraView, CameraType, FlashMode } from "expo-camera";
-import * as MediaLibrary from 'expo-media-library';
-import * as Torch from 'expo-torch';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import { capturePhoto, captureVideo } from '../../services/SimpleCaptureService';
+import * as FileSystem from 'expo-file-system';
+import { Camera } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
+// Import torch safely with fallback
+let Torch: any = null;
+try {
+  Torch = require('expo-torch');
+} catch (error) {
+  console.log('Expo Torch module not available, using fallback');
+}
 
-import {
-    speak,
-    speakButtonAction,
-    speakNotification,
-    speakEmergencyAlert,
-    speakSOSCountdown,
-    speakPageTitle
-} from '../../services/SpeechService';
+// Safety Alerts Component with Priority Support
+interface SafetyAlert {
+  id: string;
+  title: string;
+  message: string;
+  type: 'critical' | 'warning' | 'info';
+  priority: 'high' | 'medium' | 'low';
+  createdAt: Date;
+  isActive: boolean;
+}
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.0.100:5000";
-const { width, height } = Dimensions.get('window');
+const SafetyAlertsSection = () => {
+  const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
 
-export default function HomeScreen() {
-    const [sosPressCount, setSosPressCount] = useState(0);
-    const [isFollowing, setIsFollowing] = useState(false);
-    const [isTorchOn, setIsTorchOn] = useState(false);
-    const [showSOSModal, setShowSOSModal] = useState(false);
-    const [showActivityModal, setShowActivityModal] = useState(false);
-    const [showNotificationsModal, setShowNotificationsModal] = useState(false);
-    const [unreadCount, setUnreadCount] = useState(3);
-    const [countdown, setCountdown] = useState<number | null>(null);
-    const [isSOSActivated, setIsSOSActivated] = useState(false);
-    const [capturedMedia, setCapturedMedia] = useState<{ photo?: string; video?: string }>({});
-    const [currentLocation, setCurrentLocation] = useState<Location.LocationObject | null>(null);
-    const [sosStartTime, setSosStartTime] = useState<Date | null>(null);
-    const [locationAddress, setLocationAddress] = useState<string>('Getting address...');
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-    const [hasMicrophonePermission, setHasMicrophonePermission] = useState<boolean | null>(null);
-    const [cameraReady, setCameraReady] = useState(false);
-    const [isRecording, setIsRecording] = useState(false);
-    const cameraRef = useRef<CameraView | null>(null);
-    const [cameraType, setCameraType] = useState<CameraType>('back');
-    const [cameraFlash, setCameraFlash] = useState<FlashMode>('off');
-    const [hasMediaLibraryPermission, setHasMediaLibraryPermission] = useState(false);
-    const [autoCaptureSOS, setAutoCaptureSOS] = useState(false);
+  useEffect(() => {
+    loadAlerts();
+  }, []);
 
-    const sosTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const recordingRef = useRef<{ isRecording: boolean }>({ isRecording: false });
-    const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-    const [safetyAlerts, setSafetyAlerts] = useState([
-        {
-            id: 1,
-            type: 'warning',
-            message: '⚠️ Reported incident near Faculty of Engineering 5 mins ago',
-            time: '5 mins ago',
-        },
-        {
-            id: 2,
-            type: 'info',
-            message: 'ℹ️ Campus security patrol in Science Building area',
-            time: '15 mins ago',
-        },
-    ]);
-
-    const [recentActivities] = useState([
-        { id: 1, type: 'guardian', count: 3, label: 'Guardian Sessions' },
-        { id: 2, type: 'location', count: 12, label: 'Location Shares' },
-        { id: 3, type: 'reports', count: 2, label: 'Reports Filed' },
-        { id: 4, type: 'checkin', count: 8, label: 'Safety Check-ins' },
-    ]);
-
-    const notifications = [
-        { id: 'n1', title: 'Trusted Friend Request accepted', description: 'Emma accepted your request.', time: '2:45 PM', read: false },
-        { id: 'n2', title: 'Guardian session ended', description: 'Your route to Library completed.', time: '1:10 PM', read: true },
-        { id: 'n3', title: 'Safety Alert', description: 'Patrol near Science Building.', time: '12:30 PM', read: false },
+  const loadAlerts = () => {
+    // Mock alerts - In real app, this would fetch from API
+    const mockAlerts: SafetyAlert[] = [
+      {
+        id: '1',
+        title: 'Campus Lockdown',
+        message: 'Security incident in progress. Remain in current location.',
+        type: 'critical',
+        priority: 'high',
+        createdAt: new Date(Date.now() - 300000), // 5 mins ago
+        isActive: true,
+      },
+      {
+        id: '2',
+        title: 'Heavy Rain Warning',
+        message: 'Heavy rainfall expected. Exercise caution near construction areas.',
+        type: 'warning',
+        priority: 'medium',
+        createdAt: new Date(Date.now() - 720000), // 12 mins ago
+        isActive: true,
+      },
+      {
+        id: '3',
+        title: 'Parking Closure',
+        message: 'Parking Lot B closed for maintenance until 6 PM.',
+        type: 'info',
+        priority: 'low',
+        createdAt: new Date(Date.now() - 3600000), // 1 hour ago
+        isActive: true,
+      },
     ];
 
-    useEffect(() => {
-        if (sosPressCount > 0) {
-            const timer = setTimeout(() => {
-                setSosPressCount(0);
-                setCountdown(null);
-            }, 3000);
-            return () => clearTimeout(timer);
+    // Sort by priority: high -> medium -> low, then by creation time (newest first)
+    const sortedAlerts = mockAlerts
+      .filter(alert => alert.isActive)
+      .sort((a, b) => {
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+          return priorityOrder[b.priority] - priorityOrder[a.priority];
         }
-    }, [sosPressCount]);
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
 
-    useEffect(() => {
-        (async () => {
-            const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+    setAlerts(sortedAlerts);
+  };
 
-            if (locationStatus === 'granted') {
-                const location = await Location.getCurrentPositionAsync({});
-                setCurrentLocation(location);
-                reverseGeocode(location.coords.latitude, location.coords.longitude);
-            }
+  const getAlertIcon = (type: string) => {
+    switch (type) {
+      case 'critical': return 'alert-circle';
+      case 'warning': return 'warning';
+      case 'info': return 'information-circle';
+      default: return 'information-circle';
+    }
+  };
 
-            const { status: camStatus } = await Camera.requestCameraPermissionsAsync();
-            const { status: micStatus } = await Camera.requestMicrophonePermissionsAsync();
+  const getPriorityBadge = (priority: string) => {
+    switch (priority) {
+      case 'high': return '🔴';
+      case 'medium': return '🟡';
+      case 'low': return '🟢';
+      default: return '🟢';
+    }
+  };
 
-            setHasCameraPermission(camStatus === "granted");
-            setHasMicrophonePermission(micStatus === "granted");
+  const formatTimeAgo = (date: Date) => {
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} mins ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    return `${diffHours}h ago`;
+  };
 
-            console.log("Camera:", camStatus, "Mic:", micStatus);
+  const visibleAlerts = alerts.slice(0, 2);
+  const remainingCount = Math.max(0, alerts.length - 2);
 
-            const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-            setHasMediaLibraryPermission(mediaStatus === 'granted');
-        })();
-    }, []);
+  return (
+    <View style={styles.alertsContainer}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Safety Alerts</Text>
+        <TouchableOpacity 
+          style={styles.viewAllButton}
+          onPress={() => {
+            router.push('/alerts');
+          }}
+        >
+          <Text style={styles.viewAllText}>View All</Text>
+          <Ionicons name="chevron-forward" size={16} color="#007AFF" />
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.compactAlertCard}>
+        {visibleAlerts.map((alert: any) => (
+          <View key={alert.id} style={styles.compactAlertRow}>
+            <View style={[
+              styles.compactAlertIcon, 
+              alert.type === 'critical' ? styles.compactAlertIconCritical :
+              alert.type === 'warning' ? styles.compactAlertIconWarning : 
+              styles.compactAlertIconInfo
+            ]}>
+              <Ionicons name={getAlertIcon(alert.type)} size={18} color="#fff" />
+            </View>
+            <View style={styles.compactAlertContent}>
+              <Text style={styles.compactAlertTitle}>{alert.title}</Text>
+              <Text style={styles.compactAlertMeta}>{formatTimeAgo(alert.createdAt)} • Campus-wide</Text>
+            </View>
+            <View style={[
+              styles.compactPriorityBadge,
+              alert.priority === 'medium' ? styles.compactPriorityBadgeWarning :
+              alert.priority === 'low' ? styles.compactPriorityBadgeInfo : {}
+            ]}>
+              <Text style={styles.compactPriorityText}>{getPriorityBadge(alert.priority)}</Text>
+            </View>
+          </View>
+        ))}
+        
+        {remainingCount > 0 && (
+          <View style={styles.alertSummary}>
+            <Text style={styles.alertSummaryText}>+{remainingCount} more alert{remainingCount > 1 ? 's' : ''}</Text>
+            <View style={styles.alertStatusDots}>
+              {alerts.slice(2, 5).map((alert, index) => (
+                <View key={index} style={[
+                  styles.statusDot,
+                  alert.priority === 'high' ? styles.statusDotCritical :
+                  alert.priority === 'medium' ? styles.statusDotWarning :
+                  styles.statusDotInfo
+                ]} />
+              ))}
+            </View>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
 
-    useEffect(() => {
-        speakPageTitle('Home');
-    }, []);
+function HomeScreen() {
+  const { 
+    isSOSActive, 
+    setIsSOSActive, 
+    sosStartTime, 
+    setSosStartTime, 
+    showSOSModal, 
+    setShowSOSModal,
+    setOnSOSIndicatorPress 
+  } = useSOSContext();
+  
+  const [sosPressCount, setSosPressCount] = useState(0);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [isTorchOn, setIsTorchOn] = useState(false);
+  const [showActivityModal, setShowActivityModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(3);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isSOSActivated, setIsSOSActivated] = useState(false);
+  const [capturedMedia, setCapturedMedia] = useState<{ photo?: string; video?: string }>({});
+  const [autoCaptureSOS, setAutoCaptureSOS] = useState(true); // Enable auto-capture by default
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-    useEffect(() => {
-        (async () => {
-            try {
-                const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
+  const { currentLocation, locationAddress, requestLocationPermission } = useLocation();
+  const permissions = usePermissions();
 
-                if (locationStatus === 'granted') {
-                    const location = await Location.getCurrentPositionAsync({
-                        accuracy: Location.Accuracy.High
-                    });
-                    setCurrentLocation(location);
-                    await reverseGeocode(location.coords.latitude, location.coords.longitude);
-                } else {
-                    setLocationAddress('Location permission denied');
-                }
-            } catch (error) {
-                console.error('Error getting location:', error);
-                setLocationAddress('Error getting location');
-            }
-        })();
-    }, []);
+  // Refs for countdown and SOS activation
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sosTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Camera states for photo/video capture
+  const [cameraType, setCameraType] = useState<'front' | 'back'>('back');
+  const [cameraFlash, setCameraFlash] = useState<'on' | 'off'>('off');
+  
+  // Post-incident resource coordination
+  const [showPostIncidentResources, setShowPostIncidentResources] = useState(false);
+  const [showReasonForm, setShowReasonForm] = useState(false);
+  const [incidentData, setIncidentData] = useState<{ type: string; id: string } | null>(null);
 
-    useEffect(() => {
-        return () => {
-            if (sosTimeoutRef.current) {
-                clearTimeout(sosTimeoutRef.current);
-            }
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-            }
-        };
-    }, []);
+  // Discreet alarm and helpdesk states
+  const [showDiscreetAlarmModal, setShowDiscreetAlarmModal] = useState(false);
+  const [showHelpdeskModal, setShowHelpdeskModal] = useState(false);
+  const [alarmType, setAlarmType] = useState<'fake-call' | 'ring'>('fake-call');
+  
+  // Use global alarm context
+  const { isAlarmPlaying, currentAlarmType, startAlarm, stopAlarm } = useAlarmContext();
 
-    useEffect(() => {
-        (async () => {
-            const saved = await AsyncStorage.getItem('@autoCaptureSOS');
-            if (saved !== null) setAutoCaptureSOS(saved === 'true');
-        })();
-    }, []);
+  // Animation for SOS button pulse effect
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  // Add a countdown animation ref
+  const countdownPulseAnim = useRef(new Animated.Value(1)).current;
+  // Pulse animation for floating SOS indicator
+  const pulseAnimation = useRef(new Animated.Value(1)).current;
+  
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        })
+      ])
+    ).start();
+  }, []);
+  
+  // Start a more intense pulse animation when countdown is active
+  useEffect(() => {
+    if (countdown !== null) {
+      // Faster, more urgent pulsing during countdown
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(countdownPulseAnim, {
+            toValue: 1.15,
+            duration: 500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(countdownPulseAnim, {
+            toValue: 1,
+            duration: 500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          })
+        ])
+      ).start();
+    } else {
+      // Reset animation when countdown is cancelled
+      countdownPulseAnim.setValue(1);
+    }
+  }, [countdown]);
 
-    const reverseGeocode = async (latitude: number, longitude: number) => {
+  // Pulse animation for floating SOS indicator
+  useEffect(() => {
+    if (isSOSActive) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnimation, {
+            toValue: 0.7,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnimation, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          })
+        ])
+      ).start();
+    } else {
+      pulseAnimation.setValue(1);
+    }
+  }, [isSOSActive]);
+
+  useEffect(() => {
+    speakPageTitle('Home');
+  }, []);
+
+  // Set up the callback for SOS indicator press in header
+  useEffect(() => {
+    setOnSOSIndicatorPress(() => () => {
+      setShowSOSModal(true);
+    });
+  }, [setOnSOSIndicatorPress, setShowSOSModal]);
+
+  // Load the auto-capture setting from AsyncStorage
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const savedAutoCapture = await AsyncStorage.getItem('@autoCaptureSOS');
+        if (savedAutoCapture !== null) {
+          setAutoCaptureSOS(savedAutoCapture === 'true');
+        }
+      } catch (error) {
+        console.error('Error loading SOS settings:', error);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  // Load alarm type from profile settings
+  useEffect(() => {
+    const loadAlarmType = async () => {
+      try {
+        const savedAlarmType = await AsyncStorage.getItem('@alarmType');
+        if (savedAlarmType) {
+          // Handle migration from old 'loud-alarm' to new 'ring'
+          const migratedType = savedAlarmType === 'loud-alarm' ? 'ring' : savedAlarmType;
+          setAlarmType(migratedType as 'fake-call' | 'ring');
+        }
+      } catch (error) {
+        console.log('Error loading alarm type:', error);
+      }
+    };
+    loadAlarmType();
+  }, []);
+
+  // Reload alarm type when user navigates back to this screen (e.g., from profile)
+  useFocusEffect(
+    useCallback(() => {
+      const loadAlarmType = async () => {
         try {
-            setLocationAddress('Getting address...');
-
-            const reverseGeocodedAddress = await Location.reverseGeocodeAsync({
-                latitude,
-                longitude,
-            });
-
-            if (reverseGeocodedAddress.length > 0) {
-                const address = reverseGeocodedAddress[0];
-                const addressParts = [
-                    address.name,
-                    address.street,
-                    address.city,
-                    address.region,
-                    address.postalCode,
-                    address.country
-                ].filter(part => part && part.trim() !== '');
-
-                setLocationAddress(addressParts.join(', ') || 'Address not available');
-            } else {
-                setLocationAddress('Address not available');
-            }
+          const savedAlarmType = await AsyncStorage.getItem('@alarmType');
+          if (savedAlarmType) {
+            const migratedType = savedAlarmType === 'loud-alarm' ? 'ring' : savedAlarmType;
+            setAlarmType(migratedType as 'fake-call' | 'ring');
+            console.log('Reloaded alarm type on focus:', migratedType);
+          }
         } catch (error) {
-            console.error('Reverse geocoding error:', error);
-            setLocationAddress('Error getting address');
+          console.log('Error reloading alarm type:', error);
         }
+      };
+      loadAlarmType();
+    }, [])
+  );
+
+  // Setup sound service callback to clear UI state when sound finishes
+  useEffect(() => {
+    soundAlarmService.setOnSoundFinished(() => {
+      // Global context will handle state updates via AlarmContext
+      stopAlarm();
+    });
+  }, [stopAlarm]);
+
+  useEffect(() => {
+    const requestPermissions = async () => {
+      // Request location permissions
+      const locationStatus = await Location.requestForegroundPermissionsAsync();
+      if (locationStatus.status !== 'granted') {
+        Alert.alert('Permission Denied', 'Location permission is required for SOS.');
+      }
+      
+      // Request camera permissions for flashlight
+      const cameraStatus = await Camera.requestCameraPermissionsAsync();
+      if (cameraStatus.status !== 'granted') {
+        Alert.alert('Permission Denied', 'Camera permission is required for flashlight functionality.');
+      }
+      
+      // Using SimpleCaptureService that doesn't need MediaLibrary permissions
+      console.log('Using SimpleCaptureService for media capture, no MediaLibrary permissions needed');
     };
-
-    const requestLocationPermission = async () => {
-        try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status === 'granted') {
-                const location = await Location.getCurrentPositionAsync({});
-                setCurrentLocation(location);
-                await reverseGeocode(location.coords.latitude, location.coords.longitude);
-            }
-        } catch (error) {
-            console.error('Error requesting location permission:', error);
-        }
-    };
-
-    const handleSOSPressIn = () => {
-        setCountdown(3);
-
-        if (countdownIntervalRef.current) {
-            clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = null;
-        }
-
-        if (sosTimeoutRef.current) {
-            clearTimeout(sosTimeoutRef.current);
-            sosTimeoutRef.current = null;
-        }
-
-        countdownIntervalRef.current = setInterval(() => {
-            setCountdown(prev => {
-                if (prev && prev > 1) {
-                    return prev - 1;
-                } else {
-                    if (countdownIntervalRef.current) {
-                        clearInterval(countdownIntervalRef.current);
-                        countdownIntervalRef.current = null;
-                    }
-                    return null;
-                }
-            });
-        }, 1000);
-
-        sosTimeoutRef.current = setTimeout(() => {
-            if (countdownIntervalRef.current) {
-                clearInterval(countdownIntervalRef.current);
-                countdownIntervalRef.current = null;
-            }
-            setCountdown(null);
-            activateSOS();
-        }, 3000);
-    };
-
-    const activateSOS = async () => {
-        try {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setIsSOSActivated(true);
-            setSosStartTime(new Date());
-            await triggerSOSActions();
-        } catch (err) {
-            console.error("SOS activation error:", err);
-        }
-    };
-
-    const triggerSOSActions = async () => {
-        try {
-            await silentEmergencyActions();
-            setShowSOSModal(true);
-            console.log("🚨 SOS fully activated!");
-        } catch (error) {
-            console.error("Error in triggerSOSActions:", error);
-        }
-    };
-
-    const captureEmergencyMedia = async () => {
-        if (!hasCameraPermission || !autoCaptureSOS) {
-            console.log('No camera permission or auto-capture disabled, skipping media capture');
-            return;
-        }
-
-        try {
-            await takePicture();
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            if (cameraRef.current && cameraReady) {
-                setIsRecording(true);
-                recordingRef.current.isRecording = true;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                const video = await cameraRef.current.recordAsync({
-                    maxDuration: 10,
-                    maxFileSize: 10_000_000,
-                });
-
-                if (video?.uri) {
-                    if (hasMediaLibraryPermission) {
-                        try {
-                            const asset = await MediaLibrary.createAssetAsync(video.uri);
-                            await MediaLibrary.createAlbumAsync("SafetySOS", asset, false);
-                        } catch (mediaError) {
-                            console.log("Error saving video to media library:", mediaError);
-                        }
-                    }
-                    setCapturedMedia(prev => ({ ...prev, video: video.uri }));
-                }
-            }
-        } catch (error) {
-            console.log('Error in captureEmergencyMedia:', error);
-        } finally {
-            setIsRecording(false);
-            recordingRef.current.isRecording = false;
-        }
-    };
-
-    const toggleRecording = async () => {
-        if (!hasCameraPermission || !hasMicrophonePermission) {
-            Alert.alert("Error", "Camera or microphone permission not granted");
-            return;
-        }
-
-        if (cameraRef.current && cameraReady) {
-            try {
-                if (isRecording) {
-                    await cameraRef.current.stopRecording();
-                    setIsRecording(false);
-                    speak("Video recording stopped");
-                } else {
-                    setIsRecording(true);
-                    speak("Video recording started");
-                    await new Promise(resolve => setTimeout(resolve, 300));
-
-                    const video = await cameraRef.current.recordAsync({
-                        maxDuration: 60,
-                        maxFileSize: 50_000_000,
-                    });
-
-                    if (video?.uri) {
-                        if (hasMediaLibraryPermission) {
-                            try {
-                                const asset = await MediaLibrary.createAssetAsync(video.uri);
-                                await MediaLibrary.createAlbumAsync("SafetySOS", asset, false);
-                                setCapturedMedia(prev => ({ ...prev, video: video.uri }));
-                            } catch (mediaError) {
-                                console.log("Error saving video:", mediaError);
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                console.log("Error with video recording:", error);
-                speak("Failed to control video recording");
-                setIsRecording(false);
-            }
-        }
-    };
-
-    const takePicture = async () => {
-        if (!hasCameraPermission) {
-            Alert.alert('Error', 'Camera permission not granted');
-            return;
-        }
-
-        if (cameraRef.current && cameraReady) {
-            try {
-                const photo = await cameraRef.current.takePictureAsync({
-                    quality: 0.8,
-                    skipProcessing: false,
-                    exif: true
-                });
-
-                if (hasMediaLibraryPermission) {
-                    try {
-                        const asset = await MediaLibrary.createAssetAsync(photo.uri);
-                        await MediaLibrary.createAlbumAsync('SafetySOS', asset, false);
-                    } catch (mediaError) {
-                        console.log('Error saving photo:', mediaError);
-                    }
-                }
-
-                setCapturedMedia(prev => ({ ...prev, photo: photo.uri }));
-                console.log('Photo captured successfully:', photo.uri);
-            } catch (error) {
-                console.log('Error taking picture:', error);
-            }
-        }
-    };
-
-    const handleSOSPressOut = () => {
-        if (countdownIntervalRef.current) {
-            clearInterval(countdownIntervalRef.current);
-            countdownIntervalRef.current = null;
-        }
-
-        if (sosTimeoutRef.current) {
-            clearTimeout(sosTimeoutRef.current);
-            sosTimeoutRef.current = null;
-        }
-
-        setCountdown(null);
-    };
-
-    const silentEmergencyActions = async () => {
-        try {
-            if (autoCaptureSOS) {
-                try {
-                    const { status: locationStatus } = await Location.getForegroundPermissionsAsync();
-                    if (locationStatus === 'granted') {
-                        const location = await Location.getCurrentPositionAsync({});
-                        setCurrentLocation(location);
-                        await reverseGeocode(location.coords.latitude, location.coords.longitude);
-                    } else {
-                        setLocationAddress('Location permission needed for SOS');
-                    }
-                } catch (locationError) {
-                    console.error('Location error in SOS:', locationError);
-                    setLocationAddress('Location unavailable');
-                }
-                await captureEmergencyMedia();
-                await sendSilentEmergencyData();
-
-                console.log('🚨 SILENT EMERGENCY ACTIONS COMPLETED:');
-                console.log('- Location obtained:', currentLocation ? 'Yes' : 'No');
-            } else {
-                console.log('🚨 Auto-capture disabled, skipping media capture');
-                await sendSilentEmergencyData();
-            }
-        } catch (error) {
-            console.log('Silent emergency actions failed:', error);
-        }
-    };
-
-    const sendSilentEmergencyData = async () => {
-        console.log('📱 SILENTLY sending emergency data to all contacts...');
-
-        const emergencyContacts = ['Mom', 'Dad', 'Campus Security'];
-        emergencyContacts.forEach(contact => {
-            console.log(`📤 Data sent to ${contact}:`);
-            console.log(`   📍 Location: ${currentLocation ? 'Captured' : 'Getting...'}`);
-            console.log(`   📸 Photo: ${capturedMedia.photo ? 'Captured' : 'Failed'}`);
-            console.log(`   🎥 Video: ${capturedMedia.video ? 'Recording' : 'Failed'}`);
-            console.log(`   ⏰ Time: ${new Date().toLocaleTimeString()}`);
-        });
-    };
-
-    const handleFollowMe = () => {
-        const newState = !isFollowing;
-        setIsFollowing(newState);
-        speakButtonAction(newState ? 'Follow Me activated' : 'Follow Me deactivated');
-
-        if (newState) {
-            router.push({
-                pathname: '/map',
-                params: {
-                    followMode: 'true',
-                    latitude: currentLocation?.coords.latitude,
-                    longitude: currentLocation?.coords.longitude
-                }
-            });
-        }
-
-        Alert.alert(
-            newState ? 'Follow Me Activated' : 'Follow Me Deactivated',
-            newState
-                ? 'Your location is now being shared with trusted contacts. Opening map...'
-                : 'Your location is no longer being shared with trusted contacts.',
-            [{ text: 'OK' }]
-        );
-    };
-
-    const toggleTorch = async () => {
-        try {
-            const { status } = await Torch.requestPermissionsAsync();
-            if (status === 'granted') {
-                const isTorchActive = await Torch.getStateAsync();
-                if (isTorchActive.isTorchOn) {
-                    await Torch.turnOffAsync();
-                    setIsTorchOn(false);
-                    speak("Flashlight turned off");
-                } else {
-                    await Torch.turnOnAsync();
-                    setIsTorchOn(true);
-                    speak("Flashlight turned on");
-                }
-            } else {
-                Alert.alert('Permission needed', 'Camera permission is required to use flashlight');
-            }
-        } catch (error) {
-            console.error('Error toggling torch:', error);
-            Alert.alert('Error', 'Could not access flashlight');
-        }
-    };
-
-    const handleViewAllAlerts = () => {
-        router.push('/alerts');
-        speakButtonAction('Viewing all safety alerts');
-    };
-
-    const handleEmergencyCall = (type: string) => {
-        let phoneNumber = '';
-        let title = '';
-
-        switch (type) {
-            case 'campus':
-                phoneNumber = '+1 (555) 911-0000';
-                title = 'Campus Security';
-                break;
-            case 'police':
-                phoneNumber = '999';
-                title = 'Police (999)';
-                break;
-            case 'hospital':
-                phoneNumber = '+1 (555) 911-0002';
-                title = 'Hospital';
-                break;
-            case 'trusted':
-                speakButtonAction('Notifying trusted contacts with live location');
-                Alert.alert('Trusted Contact', 'Notifying your trusted contacts with live location');
-                return;
-        }
-
-        Alert.alert(
-            `Call ${title}`,
-            `Do you want to call ${title}?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Call',
-                    onPress: () => {
-                        Linking.openURL(`tel:${phoneNumber}`);
-                    },
-                },
-            ]
-        );
-    };
-
-    const handleCancelSOS = () => {
-        if (recordingRef.current.isRecording && cameraRef.current) {
-            cameraRef.current.stopRecording();
-            setIsRecording(false);
-            recordingRef.current.isRecording = false;
-        }
-
-        setShowSOSModal(false);
-        setIsSOSActivated(false);
-        setSosStartTime(null);
-        setCapturedMedia({});
-        Alert.alert('SOS Cancelled', 'Emergency has been cancelled. Stay safe!');
-    };
-
-    const toggleCameraType = () => {
-        setCameraType(prev => (prev === 'back' ? 'front' : 'back'));
-    };
-
-    const toggleFlash = () => {
-        setCameraFlash(prev => (prev === 'off' ? 'on' : 'off'));
-    };
-
-    return (
-        <SafeAreaView style={styles.container}>
-            <CameraView
-                ref={cameraRef}
-                style={{ width: 1, height: 1, position: "absolute", top: -1000 }}
-                facing={cameraType}
-                flash={(isTorchOn ? "torch" : "off") as FlashMode}
-                ratio="16:9"
-                onCameraReady={() => setCameraReady(true)}
-            />
-            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-                {/* Header with Notifications Bell */}
-                <View style={styles.header}>
-                    <View style={styles.headerLeft}>
-                        <Text style={styles.greeting}>Welcome back! 👋</Text>
-                        <Text style={styles.subtitle}>Stay safe on campus</Text>
-                    </View>
-
-                    {/* Notifications Bell Button */}
-                    <TouchableOpacity
-                        style={styles.activityRingButton}
-                        onPress={() => {
-                            setShowNotificationsModal(true);
-                            setUnreadCount(0);
-                            speakButtonAction('Opening notifications');
-                        }}
-                        accessibilityLabel="Notifications"
-                        accessibilityHint="View your notifications"
-                    >
-                        <View style={styles.bellContainer}>
-                            <Ionicons name="notifications-outline" size={28} color="#007AFF" />
-                            {unreadCount > 0 && (
-                                <View style={styles.badge}>
-                                    <Text style={styles.badgeText}>{unreadCount}</Text>
-                                </View>
-                            )}
-                        </View>
-                    </TouchableOpacity>
-                </View>
-
-                {/* Safety Alerts Banner */}
-                <View style={styles.alertsContainer}>
-                    <View style={styles.alertsHeader}>
-                        <Text style={styles.alertsTitle}>Safety Alerts</Text>
-                        <TouchableOpacity onPress={handleViewAllAlerts}>
-                            <Text style={styles.viewAllText}>View All</Text>
-                        </TouchableOpacity>
-                    </View>
-                    {safetyAlerts.slice(0, 2).map((alert) => (
-                        <View key={alert.id} style={styles.alertItem}>
-                            <Ionicons
-                                name={alert.type === 'warning' ? 'warning' : 'information-circle'}
-                                size={20}
-                                color={alert.type === 'warning' ? '#ff6b35' : '#007AFF'}
-                            />
-                            <Text style={styles.alertMessage}>{alert.message}</Text>
-                            <Text style={styles.alertTime}>{alert.time}</Text>
-                        </View>
-                    ))}
-                </View>
-
-                {/* SOS Button as Large Circle with Secondary Buttons Below */}
-                <View style={styles.sosMainContainer}>
-                    {/* SOS Button */}
-                    <TouchableOpacity
-                        style={[styles.sosCircleButton, countdown !== null && styles.sosCircleButtonActive]}
-                        onPressIn={handleSOSPressIn}
-                        onPressOut={handleSOSPressOut}
-                        activeOpacity={0.8}
-                        accessibilityLabel="SOS Emergency Button"
-                        accessibilityHint="Press and hold for 3 seconds to activate emergency SOS"
-                    >
-                        <View style={styles.sosCircleButtonContent}>
-                            <Ionicons name="alert-circle" size={40} color="#fff" />
-                            <Text style={styles.sosCircleButtonText}>
-                                {countdown !== null ? countdown : 'SOS'}
-                            </Text>
-                            <Text style={styles.sosCircleButtonSubtext}>
-                                {countdown !== null ? 'Hold...' : 'Hold 3s'}
-                            </Text>
-                        </View>
-                    </TouchableOpacity>
-
-                    {/* Secondary Buttons Below SOS */}
-                    <View style={styles.secondaryButtonsContainer}>
-                        {/* Follow Me Button */}
-                        <TouchableOpacity
-                            style={[styles.secondaryButton, styles.followMeButton, isFollowing && styles.followMeButtonActive]}
-                            onPress={handleFollowMe}
-                            accessibilityLabel="Follow Me Button"
-                            accessibilityHint="Share your location with trusted contacts"
-                        >
-                            <View style={styles.secondaryButtonContent}>
-                                <Ionicons
-                                    name={isFollowing ? 'location' : 'location-outline'}
-                                    size={24}
-                                    color={isFollowing ? '#fff' : '#007AFF'}
-                                />
-                                <Text style={isFollowing ? styles.secondaryButtonText : styles.followMeText}>
-                                    {isFollowing ? 'Following' : 'Follow Me'}
-                                </Text>
-                            </View>
-                        </TouchableOpacity>
-
-                        {/* Torchlight Button */}
-                        <TouchableOpacity
-                            style={[styles.secondaryButton, styles.torchButton, isTorchOn && styles.torchButtonActive]}
-                            onPress={toggleTorch}
-                            accessibilityLabel="Torchlight Button"
-                            accessibilityHint="Turn on or off your device flashlight"
-                        >
-                            <View style={styles.secondaryButtonContent}>
-                                <Ionicons
-                                    name={isTorchOn ? "flashlight" : "flashlight-outline"}
-                                    size={24}
-                                    color={isTorchOn ? "#fff" : "#FFD700"}
-                                />
-                                <Text style={isTorchOn ? styles.secondaryButtonText : styles.torchButtonText}>
-                                    {isTorchOn ? "ON" : "Torch"}
-                                </Text>
-                            </View>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </ScrollView>
-
-            {/* SOS Countdown overlay */}
-            {countdown !== null && (
-                <View style={styles.countdownOverlay}>
-                    <Text style={styles.countdownText}>{countdown}</Text>
-                </View>
-            )}
-
-            {/* Hidden Camera for emergency capture */}
-            <View style={styles.hiddenCameraContainer}></View>
-
-            {/* SOS Modal - Shows AFTER silent actions are complete */}
-            <Modal
-                visible={showSOSModal}
-                animationType="slide"
-                transparent
-                onRequestClose={() => setShowSOSModal(false)}
-            >
-                <View style={styles.sosModalOverlay}>
-                    <View style={styles.sosModalContent}>
-                        {/* Make the content scrollable */}
-                        <ScrollView
-                            style={styles.scrollableModalContent}
-                            showsVerticalScrollIndicator={true}
-                        >
-                            {/* Header */}
-                            <View style={styles.sosModalHeader}>
-                                <Ionicons name="alert-circle" size={40} color="#FF3B30" />
-                                <Text style={styles.sosModalTitle}>🚨 SOS ACTIVATED</Text>
-                                <Text style={styles.sosModalSubtitle}>Emergency data sent to contacts</Text>
-                                <Text style={styles.sosModalTime}>
-                                    Activated at: {sosStartTime?.toLocaleTimeString()}
-                                </Text>
-                            </View>
-
-                            {/* Status of Silent Actions - Icons only */}
-                            <View style={styles.silentActionsStatus}>
-                                <Text style={styles.silentActionsTitle}>✅ Actions Completed:</Text>
-                                <View style={styles.statusIconsContainer}>
-                                    <View style={styles.statusIcon}>
-                                        <Ionicons
-                                            name="camera"
-                                            size={24}
-                                            color={autoCaptureSOS && capturedMedia.photo ? "#34C759" : "#FF3B30"}
-                                        />
-                                        <Text style={styles.statusIconText}>
-                                            {autoCaptureSOS ? (capturedMedia.photo ? "Photo" : "No Photo") : "Auto-capture Off"}
-                                        </Text>
-                                    </View>
-                                    <View style={styles.statusIcon}>
-                                        <Ionicons
-                                            name="videocam"
-                                            size={24}
-                                            color={autoCaptureSOS && capturedMedia.video ? "#34C759" : "#FF3B30"}
-                                        />
-                                        <Text style={styles.statusIconText}>
-                                            {autoCaptureSOS ? (capturedMedia.video ? "Video" : "No Video") : "Auto-capture Off"}
-                                        </Text>
-                                    </View>
-                                    <View style={styles.statusIcon}>
-                                        <Ionicons
-                                            name="location"
-                                            size={24}
-                                            color={currentLocation ? "#34C759" : "#FF3B30"}
-                                        />
-                                        <Text style={styles.statusIconText}>
-                                            {currentLocation ? "Location" : "No Location"}
-                                        </Text>
-                                    </View>
-                                    <View style={styles.statusIcon}>
-                                        <Ionicons
-                                            name="send"
-                                            size={24}
-                                            color="#34C759"
-                                        />
-                                        <Text style={styles.statusIconText}>Sent</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            {/* Camera Controls in SOS Modal */}
-                            <View style={styles.cameraControls}>
-                                <Text style={styles.cameraControlsTitle}>
-                                    {autoCaptureSOS ? "Capture More Evidence:" : "Manual Evidence Capture:"}
-                                </Text>
-                                {!autoCaptureSOS && (
-                                    <Text style={styles.cameraNote}>
-                                        Auto-capture is disabled. Enable it in Profile settings.
-                                    </Text>
-                                )}
-                                <View style={styles.cameraButtonsRow}>
-                                    <TouchableOpacity
-                                        style={[styles.cameraControlButton, styles.photoButton]}
-                                        onPress={takePicture}
-                                    >
-                                        <Ionicons name="camera" size={20} color="#fff" />
-                                        <Text style={styles.cameraControlText}>Photo</Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.cameraControlButton, isRecording ? styles.stopButton : styles.videoButton]}
-                                        onPress={toggleRecording}
-                                    >
-                                        <Ionicons
-                                            name={isRecording ? "stop" : "videocam"}
-                                            size={20}
-                                            color="#fff"
-                                        />
-                                        <Text style={styles.cameraControlText}>
-                                            {isRecording ? "Stop" : "Video"}
-                                        </Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.cameraControlButton, styles.flashButton]}
-                                        onPress={toggleFlash}
-                                    >
-                                        <Ionicons
-                                            name={cameraFlash === 'on' ? "flash" : "flash-off"}
-                                            size={20}
-                                            color="#fff"
-                                        />
-                                        <Text style={styles.cameraControlText}>
-                                            {cameraFlash === 'on' ? "Flash On" : "Flash Off"}
-                                        </Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.cameraControlButton, styles.switchCameraButton]}
-                                        onPress={toggleCameraType}
-                                    >
-                                        <Ionicons name="camera-reverse" size={20} color="#fff" />
-                                        <Text style={styles.cameraControlText}>Switch</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-
-                            {/* Location Display */}
-                            <View style={styles.locationContainer}>
-                                <Ionicons name="location" size={24} color="#007AFF" />
-                                <View style={styles.locationTextContainer}>
-                                    <Text style={styles.locationText}>Your Location:</Text>
-                                    {currentLocation ? (
-                                        <Text style={styles.locationAddress}>
-                                            {locationAddress}
-                                        </Text>
-                                    ) : (
-                                        <TouchableOpacity onPress={requestLocationPermission}>
-                                            <Text style={styles.locationPermissionText}>
-                                                Tap to enable location services
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
-                            </View>
-
-                            {/* Next Steps - User chooses what to do next */}
-                            <View style={styles.nextStepsContainer}>
-                                <Text style={styles.nextStepsTitle}>What would you like to do next?</Text>
-
-                                <View style={styles.emergencyActionsContainer}>
-                                    <TouchableOpacity
-                                        style={[styles.emergencyButton, styles.policeButton]}
-                                        onPress={() => handleEmergencyCall('police')}
-                                    >
-                                        <Ionicons name="car" size={20} color="#fff" />
-                                        <Text style={styles.emergencyButtonText}>Call 999</Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.emergencyButton, styles.campusButton]}
-                                        onPress={() => handleEmergencyCall('campus')}
-                                    >
-                                        <Ionicons name="shield-checkmark" size={20} color="#fff" />
-                                        <Text style={styles.emergencyButtonText}>Campus</Text>
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={[styles.emergencyButton, styles.hospitalButton]}
-                                        onPress={() => handleEmergencyCall('hospital')}
-                                    >
-                                        <Ionicons name="medical" size={20} color="#fff" />
-                                        <Text style={styles.emergencyButtonText}>Hospital</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        </ScrollView>
-
-                        {/* Bottom Action Buttons - Fixed at bottom (outside ScrollView) */}
-                        <View style={styles.bottomActionsContainer}>
-                            <TouchableOpacity
-                                style={[styles.bottomActionButton, styles.cancelButton]}
-                                onPress={handleCancelSOS}
-                            >
-                                <Text style={styles.cancelButtonText}>Cancel Emergency</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={[styles.bottomActionButton, styles.flashlightButton]}
-                                onPress={toggleTorch}
-                            >
-                                <Ionicons
-                                    name={isTorchOn ? 'flashlight' : 'flashlight-outline'}
-                                    size={16}
-                                    color="#FFD700"
-                                />
-                                <Text style={styles.flashlightButtonText}>
-                                    {isTorchOn ? 'Light On' : 'Light Off'}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Notifications Modal */}
-            <Modal
-                visible={showNotificationsModal}
-                animationType="slide"
-                transparent
-                onRequestClose={() => setShowNotificationsModal(false)}
-            >
-                <View style={styles.sosModalOverlay}>
-                    <View style={styles.sosModalContent}>
-                        <View style={styles.sosModalHeader}>
-                            <TouchableOpacity style={styles.notifCloseBtn} onPress={() => setShowNotificationsModal(false)}>
-                                <Ionicons name="close" size={28} color="#666" />
-                            </TouchableOpacity>
-                            <Ionicons name="notifications" size={40} color="#007AFF" />
-                            <Text style={styles.notifTitle}>Notifications</Text>
-                            <Text style={styles.sosModalSubtitle}>Your latest updates</Text>
-                        </View>
-
-                        {/* Read Aloud Button for Accessibility */}
-                        <TouchableOpacity
-                            style={styles.readAloudButton}
-                            onPress={() => {
-                                const notificationText = notifications.map(n =>
-                                    `${n.title}. ${n.description}. Received at ${n.time}`
-                                ).join('. ');
-                                speakNotification(notificationText);
-                            }}
-                            accessibilityLabel="Read notifications aloud"
-                            accessibilityHint="Tap to hear all notifications read aloud"
-                        >
-                            <Ionicons name="volume-high" size={20} color="#007AFF" />
-                            <Text style={styles.readAloudText}>Read Aloud</Text>
-                        </TouchableOpacity>
-                        <View>
-                            {notifications.map(n => (
-                                <View key={n.id} style={styles.alertItem}>
-                                    <Ionicons name="notifications" size={20} color="#007AFF" />
-                                    <View style={{ flex: 1, marginLeft: 12 }}>
-                                        <Text style={{ fontWeight: '600', color: '#1a1a1a' }}>{n.title}</Text>
-                                        <Text style={{ color: '#666', marginTop: 2 }}>{n.description}</Text>
-                                    </View>
-                                    <Text style={styles.alertTime}>{n.time}</Text>
-                                </View>
-                            ))}
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Recent Activity Modal */}
-            <Modal
-                visible={showActivityModal}
-                animationType="slide"
-                transparent
-                onRequestClose={() => setShowActivityModal(false)}
-            >
-                <View style={styles.sosModalOverlay}>
-                    <View style={styles.sosModalContent}>
-                        <View style={styles.sosModalHeader}>
-                            <Ionicons name="pulse" size={40} color="#007AFF" />
-                            <Text style={styles.sosModalTitle}>📊 Recent Activity</Text>
-                            <Text style={styles.sosModalSubtitle}>Your Safety Summary</Text>
-                        </View>
-
-                        <View style={styles.activitySummaryContainer}>
-                            {recentActivities.map((activity) => (
-                                <View key={activity.id} style={styles.activityStat}>
-                                    <Text style={styles.activityStatLabel}>{activity.label}</Text>
-                                    <Text style={styles.activityStatValue}>{activity.count}</Text>
-                                </View>
-                            ))}
-                        </View>
-
-                        <TouchableOpacity style={styles.cancelButton} onPress={() => setShowActivityModal(false)}>
-                            <Text style={styles.cancelButtonText}>Close</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-        </SafeAreaView>
+    requestPermissions();
+  }, []);
+
+  const handleCancelSOS = () => {
+    setIsSOSActivated(false);
+    setIsSOSActive(false);
+    setShowSOSModal(false);
+    setSosStartTime(null);
+    console.log('SOS canceled');
+  };
+
+  const handleEndEmergency = () => {
+    setIsSOSActivated(false);
+    setIsSOSActive(false);
+    setShowSOSModal(false);
+    setSosStartTime(null);
+    
+    // Set incident data for post-incident resources
+    setIncidentData({
+      type: 'emergency_resolved',
+      id: `SOS_${Date.now()}`
+    });
+    
+    // Show post-incident resources after a brief delay
+    setTimeout(() => {
+      setShowPostIncidentResources(true);
+    }, 500);
+    
+    console.log('Emergency ended - showing resources');
+  };
+
+  const handleMistakeActivation = () => {
+    setIsSOSActivated(false);
+    setIsSOSActive(false);
+    setShowSOSModal(false);
+    setSosStartTime(null);
+    
+    // Show reason form for mistake
+    setTimeout(() => {
+      setShowReasonForm(true);
+    }, 500);
+    
+    console.log('SOS was a mistake - showing reason form');
+  };
+
+  const handleReasonSubmit = (reason: string, details?: string) => {
+    console.log('False alarm reason submitted:', reason, details);
+    Alert.alert(
+      'Report Submitted',
+      'Thank you for helping us improve our emergency response system.',
+      [{ text: 'OK' }]
     );
+    setShowReasonForm(false);
+  };
+  
+  const handleMinimizeSOS = () => {
+    setShowSOSModal(false);
+    console.log('SOS minimized - continuing in background');
+  };
+  
+  // Function to manually take a photo during SOS
+  const takePicture = async () => {
+    try {
+      console.log('Starting photo capture...');
+      
+      // Use our simplified capturePhoto function that handles permissions internally
+      const photoUri = await capturePhoto();
+      
+      if (!photoUri) {
+        console.log('User canceled or no photo captured');
+        return;
+      }
+      
+      console.log('Photo captured successfully:', photoUri);
+      
+      // Save the URI to state - no need to save to gallery with SimpleCaptureService
+      setCapturedMedia((prev: any) => ({ ...prev, photo: photoUri }));
+      
+    } catch (error: any) {
+      console.error('Error in takePicture:', error);
+      
+      // More specific error handling
+      if (error.code === 'UserCancel') {
+        console.log('User canceled photo capture');
+        return;
+      }
+      
+      Alert.alert(
+        'Camera Error', 
+        'Unable to take photo. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Toggle camera flash
+  const toggleFlash = () => {
+    setCameraFlash((prev: 'on' | 'off') => prev === 'on' ? 'off' : 'on');
+  };
+  
+  // Toggle camera type (front/back)
+  const toggleCameraType = () => {
+    setCameraType((prev: 'front' | 'back') => prev === 'back' ? 'front' : 'back');
+  };
+  
+  // Toggle the device torch/flashlight
+  const toggleTorch = async () => {
+    try {
+      // Check camera permission first
+      const { status } = await Camera.getCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        const { status: newStatus } = await Camera.requestCameraPermissionsAsync();
+        if (newStatus !== 'granted') {
+          Alert.alert(
+            'Permission Required',
+            'Camera permission is needed to use the flashlight.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+        setHasCameraPermission(newStatus === 'granted');
+      }
+      
+      const newTorchState = !isTorchOn;
+      
+      // If we have the Torch module (on real device)
+      if (Torch?.default?.toggleTorchAsync) {
+        await Torch.default.toggleTorchAsync(newTorchState);
+      } 
+      // Fallback for Expo Go or when module not available
+      else if (Platform.OS !== 'web') {
+        console.log('Using camera torch fallback for Expo Go');
+        // We'll just update the UI state since we can't actually toggle the torch in Expo Go
+        Alert.alert(
+          newTorchState ? 'Torch Activated' : 'Torch Deactivated', 
+          'Note: In Expo Go, the torch is simulated. Install on a real device for full functionality.',
+          [{ text: 'OK' }]
+        );
+      }
+      
+      // Update UI state
+      setIsTorchOn(newTorchState);
+      
+      // Provide feedback
+      speakButtonAction(newTorchState ? 'Torch activated' : 'Torch deactivated');
+      
+    } catch (error) {
+      console.error('Error toggling torch:', error);
+      Alert.alert(
+        'Torch Error',
+        'Failed to toggle torch. This feature may not be available on your device or requires a real device (not an emulator).',
+        [{ text: 'OK' }]
+      );
+      // If there's an error, make sure the UI state reflects that the torch is off
+      setIsTorchOn(false);
+    }
+  };
+
+  const handleFollowMe = () => {
+    const newState = !isFollowing;
+    setIsFollowing(newState);
+    Alert.alert(
+      newState ? 'Follow Me Activated' : 'Follow Me Deactivated',
+      newState
+        ? 'Your location is now being shared with trusted contacts.'
+        : 'Your location is no longer being shared with trusted contacts.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  // Discreet Alarm Functions
+  const handleDiscreetAlarm = async () => {
+    try {
+      if (isAlarmPlaying) {
+        // Stop the alarm if it's currently playing
+        await stopAlarm();
+        Alert.alert('Alarm Stopped', 'The discreet alarm has been stopped.');
+      } else {
+        // Start the alarm if it's not playing
+        await startAlarm(alarmType);
+        
+        if (alarmType === 'fake-call') {
+          Alert.alert(
+            'Fake Call Activated',
+            'Triggering fake call sound...',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Ring Alarm Activated', 
+            'Triggering ring sound...',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+    } catch (error) {
+      console.log('Error with discreet alarm:', error);
+      Alert.alert('Error', 'Failed to control alarm. Please try again.');
+    }
+  };
+
+  const handleStopAlarm = async () => {
+    try {
+      await stopAlarm();
+      Alert.alert('Alarm Stopped', 'The alarm has been stopped.');
+    } catch (error) {
+      console.log('Error stopping alarm:', error);
+      Alert.alert('Error', 'Failed to stop alarm.');
+    }
+  };
+
+  const triggerFakeCall = async (delaySeconds: number = 30) => {
+    Alert.alert(
+      'Discreet Alarm Set',
+      `Fake call will trigger in ${delaySeconds} seconds. Stay calm.`,
+      [{ text: 'OK' }]
+    );
+
+    setTimeout(async () => {
+      try {
+        // Trigger haptic feedback
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        
+        // Start fake call alarm
+        await startAlarm('fake-call');
+        
+        // Simulate a fake incoming call
+        Alert.alert(
+          'Incoming Call',
+          'Mom is calling...',
+          [
+            { 
+              text: 'Answer', 
+              onPress: () => {
+                // Open phone app to make it look authentic
+                Linking.openURL('tel:+1234567890');
+              }
+            },
+            { 
+              text: 'Decline' 
+            }
+          ]
+        );
+      } catch (error) {
+        console.error('Error triggering fake call:', error);
+        stopAlarm();
+      }
+    }, delaySeconds * 1000);
+  };
+
+  const triggerLoudAlarm = async (delaySeconds: number = 10) => {
+    Alert.alert(
+      'Discreet Alarm Set',
+      `Loud alarm will sound in ${delaySeconds} seconds. Move to safety if needed.`,
+      [{ text: 'OK' }]
+    );
+
+    setTimeout(async () => {
+      try {
+        // Trigger haptic feedback
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        
+        // Start ring alarm
+        await startAlarm('ring');
+        
+        Alert.alert(
+          'Loud Alarm Activated',
+          'Alarm is sounding. Use the alarm indicator in the top bar to stop it.',
+          [{ text: 'OK' }]
+        );
+      } catch (error) {
+        console.error('Error triggering loud alarm:', error);
+        stopAlarm();
+      }
+    }, delaySeconds * 1000);
+  };
+
+  // Helpdesk Functions
+  const handleHelpdesk = () => {
+    setShowHelpdeskModal(true);
+  };
+
+  const contactHelpdesk = (method: 'call' | 'chat' | 'email') => {
+    switch (method) {
+      case 'call':
+        Linking.openURL('tel:+60123456700');
+        // Keep modal open so user can return to helpdesk
+        break;
+      case 'chat':
+        // In a real app, this would open a live chat system
+        Alert.alert('Live Chat', 'Connecting you to campus support...', [{ text: 'OK' }]);
+        setShowHelpdeskModal(false); // Close only for chat since it's handled in app
+        break;
+      case 'email':
+        Linking.openURL('mailto:support@university.edu.my?subject=Student Support Request');
+        // Keep modal open so user can return to helpdesk after email
+        break;
+    }
+  };
+
+  const activateSOS = async () => {
+    try {
+      // Using SimpleCaptureService that doesn't need MediaLibrary permissions
+      console.log('Using SimpleCaptureService for media capture, no MediaLibrary permissions needed');
+      
+      // Show the SOS modal immediately
+      setShowSOSModal(true);
+      setSosStartTime(new Date());
+      setIsSOSActivated(true);
+      setIsSOSActive(true);
+
+      // Speak emergency message for accessibility
+      speakButtonAction('Emergency SOS activated. Sending your location to trusted contacts.');
+
+      // Get the user's current location
+      let location;
+      try {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High
+        });
+        console.log("Got location:", JSON.stringify(location));
+      } catch (error) {
+        console.error('Failed to get accurate location:', error);
+        // Fallback to last known location
+        location = currentLocation;
+      }
+
+      // Get trusted contacts from profile (mockTrustedCircle in the mock data)
+      const trustedContacts = ['Mom', 'Dad', 'Campus Security'];
+
+      // Send emergency location to trusted contacts
+      await triggerSOSActions(location, trustedContacts);
+      
+      // Alert to show user what's happening
+      Alert.alert(
+        'SOS Activated',
+        `Your emergency location has been sent to your trusted contacts.${autoCaptureSOS ? ' Recording emergency video...' : ''}`,
+        [{ text: 'OK' }]
+      );
+
+      // If auto-capture is enabled, use the actual implementation
+      if (autoCaptureSOS) {
+        console.log('Auto-capturing emergency video (10 seconds)');
+        
+        try {
+          // Use our implementation from SOSService to capture and save a video
+          const videoUri = await captureEmergencyMedia(null, autoCaptureSOS);
+
+          if (videoUri) {
+            if (videoUri === 'auto-video-simulated') {
+              Alert.alert(
+                'Simulation in Expo Go',
+                'Auto emergency video is simulated in Expo Go. Build a development client to enable saving real auto videos.',
+                [{ text: 'OK' }]
+              );
+            } else {
+              setCapturedMedia((prev: any) => ({...prev, video: videoUri}));
+              Alert.alert(
+                'Video Captured',
+                canSaveToGallery ?
+                  'Emergency video recorded and saved to your gallery.' :
+                  'Emergency video recorded (not saved to gallery in Expo Go).',
+                [{ text: 'OK' }]
+              );
+            }
+          } else {
+            console.error('Failed to auto-capture emergency video');
+          }
+        } catch (error) {
+          console.error('Error with emergency video capture:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error activating SOS:', error);
+      Alert.alert('SOS Error', 'There was a problem with the SOS activation.', [
+        { text: 'Try Again', onPress: () => activateSOS() },
+        { text: 'Cancel', style: 'cancel' }
+      ]);
+    }
+  };
+
+  const handleSOSPressIn = () => {
+    // Start with countdown at 3
+    setCountdown(3);
+    
+    // Provide haptic feedback when countdown starts
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    } catch (e) {
+      console.log('Haptics not available');
+    }
+    
+    // Initial voice feedback
+    speakButtonAction('Hold for SOS. Counting down from 3.');
+
+    // Start the countdown interval with sound feedback
+    countdownIntervalRef.current = setInterval(() => {
+      setCountdown((prev: any) => {
+        if (prev && prev > 1) {
+          // Provide haptic feedback for each countdown step
+          try {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          } catch (e) {
+            console.log('Haptics not available');
+          }
+          
+          // Announce each number in the countdown
+          speakButtonAction(`${prev - 1}`);
+          
+          return prev - 1;
+        } else {
+          clearInterval(countdownIntervalRef.current!);
+          countdownIntervalRef.current = null;
+          return null;
+        }
+      });
+    }, 1000);
+
+    // Activate SOS after 3 seconds
+    sosTimeoutRef.current = setTimeout(() => {
+      clearInterval(countdownIntervalRef.current!);
+      countdownIntervalRef.current = null;
+      setCountdown(null);
+      
+      // Final haptic feedback when countdown completes
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (e) {
+        console.log('Haptics not available');
+      }
+      
+      activateSOS(); // Ensure this function is called
+    }, 3000);
+  };
+
+  const handleSOSPressOut = () => {
+    // Only provide feedback if the countdown was actually in progress
+    if (countdown !== null) {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (e) {
+        console.log('Haptics not available');
+      }
+      
+      // Provide auditory feedback that SOS was canceled
+      speakButtonAction('SOS canceled');
+    }
+    
+    // Clear all timers and reset countdown
+    clearInterval(countdownIntervalRef.current!);
+    countdownIntervalRef.current = null;
+    clearTimeout(sosTimeoutRef.current!);
+    sosTimeoutRef.current = null;
+    setCountdown(null);
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
+      <LinearGradient
+        colors={['#f8f9fa', '#e9f0f8']}
+        style={styles.container}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollViewContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header with welcome message and notification/activity icons */}
+          <Header 
+            title="Welcome" 
+            subtitle="Stay safe on campus"
+            unreadCount={unreadCount}
+            onActivityPress={() => setShowActivityModal(true)}
+            onNotificationsPress={() => {
+              setShowNotificationsModal(true);
+              setUnreadCount(0);
+            }}
+          />
+
+          {/* Compact Safety alerts section */}
+          <SafetyAlertsSection />
+          
+          {/* Enhanced SOS Button Section */}
+          <View style={styles.sosMainContainer}>
+            {/* Pulsing SOS Button */}
+            <Animated.View style={[
+              styles.sosCircleButtonOuterRing,
+              countdown !== null && styles.sosCircleButtonUrgent,
+              { transform: [{ scale: countdown !== null ? countdownPulseAnim : pulseAnim }] }
+            ]}>
+              <TouchableOpacity
+                style={[styles.sosCircleButton, countdown !== null && styles.sosCircleButtonActive]}
+                onPressIn={handleSOSPressIn}
+                onPressOut={handleSOSPressOut}
+                activeOpacity={0.8}
+                accessibilityLabel="SOS Emergency Button"
+                accessibilityHint="Press and hold for 3 seconds to activate emergency SOS"
+              >
+                <View style={styles.sosCircleButtonContent}>
+                  {countdown === null ? (
+                    <>
+                      <Ionicons name="alert-circle" size={40} color="#fff" />
+                      <Text style={styles.sosCircleButtonText}>SOS</Text>
+                      <Text style={styles.sosCircleButtonSubtext}>Hold 3s</Text>
+                    </>
+                  ) : (
+                    <View style={styles.countdownContainer}>
+                      <Text style={styles.countdownText}>{countdown}</Text>
+                      <Text style={styles.sosCircleButtonSubtext}>Keep holding...</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Secondary Buttons - 2x2 Grid */}
+            <View style={styles.secondaryButtonsContainer}>
+              {/* Row 1 */}
+              <View style={styles.buttonRow}>
+                {/* Follow Me Button */}
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.followMeButton, isFollowing && styles.followMeButtonActive]}
+                  onPress={handleFollowMe}
+                  accessibilityLabel="Follow Me Button"
+                  accessibilityHint="Share your location with trusted contacts"
+                >
+                  <View style={styles.secondaryButtonContent}>
+                    <Ionicons
+                      name={isFollowing ? 'location' : 'location-outline'}
+                      size={20}
+                      color={isFollowing ? '#fff' : '#007AFF'}
+                    />
+                    <Text style={isFollowing ? styles.secondaryButtonTextActive : styles.secondaryButtonText}>
+                      {isFollowing ? 'Following' : 'Follow Me'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Torch Button */}
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.torchButton, isTorchOn && styles.torchButtonActive]}
+                  onPress={toggleTorch}
+                  accessibilityLabel="Torchlight Button"
+                  accessibilityHint="Turn on or off your device flashlight"
+                >
+                  <View style={styles.secondaryButtonContent}>
+                    <Ionicons
+                      name={isTorchOn ? "flashlight" : "flashlight-outline"}
+                      size={20}
+                      color={isTorchOn ? "#fff" : "#FFD700"}
+                    />
+                    <Text style={isTorchOn ? styles.secondaryButtonTextLight : styles.torchButtonText}>
+                      {isTorchOn ? "ON" : "Torch"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Row 2 */}
+              <View style={styles.buttonRow}>
+                {/* Discreet Alarm Button */}
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.discreetAlarmButton, isAlarmPlaying && styles.discreetAlarmButtonActive]}
+                  onPress={handleDiscreetAlarm}
+                  accessibilityLabel="Discreet Alarm Button"
+                  accessibilityHint="Trigger fake call or alarm sound to deter threats"
+                >
+                  <View style={styles.secondaryButtonContent}>
+                    <Ionicons
+                      name={isAlarmPlaying ? "alarm" : "alarm-outline"}
+                      size={20}
+                      color={isAlarmPlaying ? "#fff" : "#FF6B35"}
+                    />
+                    <Text style={isAlarmPlaying ? styles.secondaryButtonTextActive : styles.discreetAlarmButtonText}>
+                      {isAlarmPlaying ? 'Stop' : 'Discreet'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Helpdesk Button */}
+                <TouchableOpacity
+                  style={[styles.secondaryButton, styles.helpdeskButton]}
+                  onPress={handleHelpdesk}
+                  accessibilityLabel="Helpdesk Button"
+                  accessibilityHint="Contact campus support and helpdesk services"
+                >
+                  <View style={styles.secondaryButtonContent}>
+                    <Ionicons
+                      name="help-circle-outline"
+                      size={20}
+                      color="#8B5CF6"
+                    />
+                    <Text style={styles.helpdeskButtonText}>
+                      Helpdesk
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </LinearGradient>
+      
+      {/* SOS Modal */}
+      <SOSModal
+        visible={showSOSModal}
+        onClose={handleCancelSOS}
+        onMinimize={handleMinimizeSOS}
+        handleCancelSOS={handleCancelSOS}
+        handleEndEmergency={handleEndEmergency}
+        handleMistakeActivation={handleMistakeActivation}
+        sosStartTime={sosStartTime}
+        capturedMedia={capturedMedia}
+        currentLocation={currentLocation}
+        locationAddress={locationAddress}
+        autoCaptureSOS={autoCaptureSOS}
+        requestLocationPermission={requestLocationPermission}
+        onMediaUpdated={() => {
+          console.log('Media updated callback received');
+          setTimeout(() => {
+            Alert.alert('Media Update', 'New emergency media has been captured');
+          }, 500);
+        }}
+        handleEmergencyCall={(type) => {
+          const phoneNumbers = {
+            'police': '911',
+            'campus': '123-456-7890',
+            'hospital': '911',
+          };
+          
+          const number = phoneNumbers[type as keyof typeof phoneNumbers];
+          const contactName = type === 'police' ? 'Police' : type === 'campus' ? 'Campus Security' : 'Hospital';
+          
+          if (number) {
+            Linking.openURL(`tel:${number}`)
+              .then(() => {
+                speakButtonAction(`Calling ${contactName}`);
+              })
+              .catch((err) => {
+                speakButtonAction('Cannot place call. Check your device call permissions.');
+                console.error('Error placing phone call:', err);
+              });
+          }
+        }}
+        speakNotification={(text) => speakButtonAction(text)}
+        takePicture={takePicture}
+      />
+      
+      {/* Activity Modal */}
+      <ActivityModal
+        visible={showActivityModal}
+        onClose={() => setShowActivityModal(false)}
+        recentActivities={[
+          { id: 1, label: 'Campus alert received', count: 1, type: 'alert' },
+          { id: 2, label: 'Location shared', count: 3, type: 'location' },
+          { id: 3, label: 'Safe arrival confirmed', count: 2, type: 'confirm' },
+        ]}
+      />
+      
+      {/* Notifications Modal */}
+      <NotificationsModal
+        visible={showNotificationsModal}
+        onClose={() => setShowNotificationsModal(false)}
+      />
+      
+      {/* Post-Incident Resource Coordination */}
+      <PostIncidentResourceScreen
+        visible={showPostIncidentResources}
+        incidentType={incidentData?.type || 'general'}
+        incidentId={incidentData?.id || ''}
+        onClose={() => {
+          setShowPostIncidentResources(false);
+          setIncidentData(null);
+        }}
+      />
+
+      {/* Reason Form for Mistake Activations */}
+      <ReasonForm
+        visible={showReasonForm}
+        onClose={() => setShowReasonForm(false)}
+        onSubmit={handleReasonSubmit}
+      />
+
+      {/* Discreet Alarm Modal */}
+      <DiscreetAlarmModal
+        visible={showDiscreetAlarmModal}
+        onClose={() => setShowDiscreetAlarmModal(false)}
+        onTriggerFakeCall={triggerFakeCall}
+        onTriggerLoudAlarm={triggerLoudAlarm}
+      />
+
+      {/* Helpdesk Modal */}
+      <HelpdeskModal
+        visible={showHelpdeskModal}
+        onClose={() => setShowHelpdeskModal(false)}
+        onContactHelpdesk={contactHelpdesk}
+      />
+    </SafeAreaView>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#f8f9fa',
-    },
-    scrollView: {
-        flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: 20,
-        paddingTop: 10,
-    },
-    headerLeft: {
-        flex: 1,
-    },
-    greeting: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#1a1a1a',
-        marginBottom: 4,
-    },
-    subtitle: {
-        fontSize: 16,
-        color: '#666',
-    },
-    activityRingButton: {
-        padding: 10,
-    },
-    bellContainer: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: '#fff',
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#e1e5e9',
-    },
-    badge: {
-        position: 'absolute',
-        top: -2,
-        right: -2,
-        minWidth: 18,
-        height: 18,
-        borderRadius: 9,
-        backgroundColor: '#FF3B30',
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: 4,
-    },
-    badgeText: {
-        color: '#fff',
-        fontSize: 11,
-        fontWeight: '700',
-    },
-    alertsContainer: {
-        marginHorizontal: 20,
-        marginBottom: 10,
-    },
-    alertsHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    alertsTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#1a1a1a',
-    },
-    viewAllText: {
-        fontSize: 14,
-        color: '#007AFF',
-        fontWeight: '500',
-    },
-    alertItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#fff',
-        padding: 16,
-        borderRadius: 12,
-        marginBottom: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    alertMessage: {
-        flex: 1,
-        fontSize: 14,
-        color: '#1a1a1a',
-        marginLeft: 12,
-        marginRight: 8,
-    },
-    alertTime: {
-        fontSize: 12,
-        color: '#999',
-    },
-    sosMainContainer: {
-        alignItems: 'center',
-        marginVertical: 24,
-        paddingHorizontal: 20,
-    },
-    sosCircleButton: {
-        width: 180,
-        height: 180,
-        borderRadius: 90,
-        backgroundColor: '#ff3b30',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        elevation: 10,
-        marginBottom: 24,
-    },
-    sosCircleButtonActive: {
-        backgroundColor: '#ff6b35',
-        transform: [{ scale: 1.05 }],
-    },
-    sosCircleButtonContent: {
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    sosCircleButtonText: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginTop: 8,
-        marginBottom: 4,
-    },
-    sosCircleButtonSubtext: {
-        fontSize: 14,
-        color: '#fff',
-        textAlign: 'center',
-        opacity: 0.9,
-    },
-    secondaryButtonsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        width: '100%',
-        gap: 16,
-    },
-    secondaryButton: {
-        flex: 1,
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: 16,
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 6,
-        elevation: 4,
-    },
-    secondaryButtonContent: {
-        alignItems: 'center',
-    },
-    secondaryButtonText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#fff',
-        marginTop: 8,
-    },
-    followMeButton: {
-        borderWidth: 2,
-        borderColor: '#007AFF',
-    },
-    followMeButtonActive: {
-        backgroundColor: '#007AFF',
-    },
-    followMeText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#007AFF',
-        marginTop: 8,
-    },
-    torchButton: {
-        borderWidth: 2,
-        borderColor: '#FFD700',
-    },
-    torchButtonActive: {
-        backgroundColor: '#FFD700',
-    },
-    torchButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#FFD700',
-        marginTop: 8,
-    },
-    countdownOverlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.4)'
-    },
-    countdownText: {
-        fontSize: 72,
-        fontWeight: '800',
-        color: '#FF3B30',
-    },
-    hiddenCameraContainer: {
-        position: 'absolute',
-        width: 1,
-        height: 1,
-        overflow: 'hidden',
-    },
-    sosModalOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    scrollableModalContent: {
-        maxHeight: height * 0.6,
-    },
-    sosModalContent: {
-        backgroundColor: '#fff',
-        borderRadius: 20,
-        padding: 20,
-        margin: 20,
-        width: width - 40,
-        maxHeight: height * 0.8,
-    },
-    sosModalHeader: {
-        alignItems: 'center',
-        marginBottom: 24,
-    },
-    sosModalTitle: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#FF3B30',
-        marginTop: 12,
-        marginBottom: 4,
-    },
-    sosModalSubtitle: {
-        fontSize: 16,
-        color: '#666',
-        textAlign: 'center',
-    },
-    sosModalTime: {
-        fontSize: 14,
-        color: '#999',
-        marginTop: 8,
-    },
-    silentActionsStatus: {
-        marginBottom: 24,
-    },
-    silentActionsTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#1a1a1a',
-        marginBottom: 12,
-    },
-    statusIconsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        marginTop: 12,
-    },
-    statusIcon: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 4,
-    },
-    statusIconText: {
-        fontSize: 10,
-        color: '#666',
-        marginTop: 4,
-        textAlign: 'center',
-    },
-    cameraControls: {
-        marginBottom: 16,
-    },
-    cameraControlsTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#1a1a1a',
-        marginBottom: 12,
-        textAlign: 'center',
-    },
-    cameraNote: {
-        fontSize: 12,
-        color: '#666',
-        textAlign: 'center',
-        marginBottom: 8,
-        fontStyle: 'italic',
-    },
-    cameraButtonsRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: 8,
-    },
-    cameraControlButton: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 8,
-        borderRadius: 8,
-        gap: 4,
-    },
-    photoButton: {
-        backgroundColor: '#34C759',
-    },
-    videoButton: {
-        backgroundColor: '#007AFF',
-    },
-    stopButton: {
-        backgroundColor: '#FF3B30',
-    },
-    flashButton: {
-        backgroundColor: '#FF9500',
-    },
-    switchCameraButton: {
-        backgroundColor: '#5856D6',
-    },
-    cameraControlText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    locationContainer: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        backgroundColor: '#f0f8ff',
-        padding: 16,
-        borderRadius: 12,
-        marginBottom: 16,
-    },
-    locationTextContainer: {
-        flex: 1,
-        marginLeft: 12,
-    },
-    locationText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#007AFF',
-        marginBottom: 4,
-    },
-    locationAddress: {
-        fontSize: 14,
-        color: '#666',
-        lineHeight: 20,
-    },
-    locationPermissionText: {
-        fontSize: 14,
-        color: '#007AFF',
-        fontStyle: 'italic',
-        marginTop: 4,
-    },
-    nextStepsContainer: {
-        marginBottom: 12,
-    },
-    nextStepsTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#1a1a1a',
-        marginBottom: 12,
-    },
-    emergencyActionsContainer: {
-        gap: 8,
-        marginBottom: 8,
-    },
-    emergencyButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 12,
-        borderRadius: 12,
-        gap: 12,
-    },
-    campusButton: {
-        backgroundColor: '#34C759',
-    },
-    policeButton: {
-        backgroundColor: '#007AFF',
-    },
-    hospitalButton: {
-        backgroundColor: '#FF3B30',
-    },
-    emergencyButtonText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    bottomActionsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        gap: 8,
-        marginTop: 16,
-    },
-    bottomActionButton: {
-        flex: 1,
-        padding: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'row',
-        gap: 6,
-    },
-    cancelButton: {
-        backgroundColor: '#f8f9fa',
-        borderWidth: 1,
-        borderColor: '#e1e5e9',
-    },
-    cancelButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#666',
-    },
-    flashlightButton: {
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: '#FFD700',
-    },
-    flashlightButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#FFD700',
-    },
-    notifTitle: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: '#1a1a1a',
-        marginTop: 8,
-    },
-    notifCloseBtn: {
-        position: 'absolute',
-        top: 0,
-        right: 0,
-        padding: 4,
-    },
-    readAloudButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#f0f8ff',
-        padding: 12,
-        borderRadius: 8,
-        marginHorizontal: 20,
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#007AFF',
-    },
-    readAloudText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#007AFF',
-        marginLeft: 8,
-    },
-    activitySummaryContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        backgroundColor: '#f8f9fa',
-        padding: 16,
-        borderRadius: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    activityStat: {
-        alignItems: 'center',
-    },
-    activityStatLabel: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 4,
-    },
-    activityStatValue: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#1a1a1a',
-    },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  container: {
+    flex: 1,
+    paddingBottom: 0,
+    position: 'relative',
+  },
+  scrollView: {
+    flex: 1,
+    marginTop: 0,
+  },
+  scrollViewContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 0,
+  },
+  alertsContainer: {
+    marginBottom: 6,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  alertBadge: {
+    backgroundColor: '#FF3B30',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  alertBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#343a40',
+    marginBottom: 0,
+  },
+  alertCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  alertCardCritical: {
+    borderLeftWidth: 5,
+    borderLeftColor: '#FF3B30',
+    backgroundColor: '#fff5f5',
+  },
+  alertCardWarning: {
+    borderLeftWidth: 5,
+    borderLeftColor: '#FF9500',
+    backgroundColor: '#fffbf0',
+  },
+  alertCardInfo: {
+    borderLeftWidth: 5,
+    borderLeftColor: '#007AFF',
+    backgroundColor: '#f0f8ff',
+  },
+  alertLeftSection: {
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  alertIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  alertIconCritical: {
+    backgroundColor: '#FF3B30',
+  },
+  alertIconWarning: {
+    backgroundColor: '#FF9500',
+  },
+  alertIconInfo: {
+    backgroundColor: '#007AFF',
+  },
+  priorityIndicator: {
+    alignItems: 'center',
+  },
+  priorityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  priorityDotCritical: {
+    backgroundColor: '#FF3B30',
+  },
+  priorityDotWarning: {
+    backgroundColor: '#FF9500',
+  },
+  priorityDotInfo: {
+    backgroundColor: '#007AFF',
+  },
+  alertContent: {
+    flex: 1,
+  },
+  alertHeader: {
+    marginBottom: 8,
+  },
+  alertTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  alertCategory: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#8e8e93',
+    letterSpacing: 0.5,
+  },
+  priorityBadge: {
+    backgroundColor: '#FF3B30',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  priorityBadgeWarning: {
+    backgroundColor: '#FF9500',
+  },
+  priorityBadgeInfo: {
+    backgroundColor: '#007AFF',
+  },
+  priorityText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  alertMessage: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    lineHeight: 20,
+  },
+  alertFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  alertTime: {
+    fontSize: 13,
+    color: '#8e8e93',
+    fontWeight: '500',
+  },
+  alertDistance: {
+    fontSize: 13,
+    color: '#8e8e93',
+    fontWeight: '500',
+  },
+  alertActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // Compact Alert Styles
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f0f8ff',
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginRight: 4,
+  },
+  compactAlertCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  compactAlertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+  compactAlertIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  compactAlertIconCritical: {
+    backgroundColor: '#FF3B30',
+  },
+  compactAlertIconWarning: {
+    backgroundColor: '#FF9500',
+  },
+  compactAlertIconInfo: {
+    backgroundColor: '#007AFF',
+  },
+  compactAlertContent: {
+    flex: 1,
+  },
+  compactAlertTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 2,
+  },
+  compactAlertMeta: {
+    fontSize: 12,
+    color: '#8e8e93',
+    fontWeight: '500',
+  },
+  compactPriorityBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  compactPriorityBadgeWarning: {
+    backgroundColor: '#FF9500',
+  },
+  compactPriorityBadgeInfo: {
+    backgroundColor: '#007AFF',
+  },
+  compactPriorityText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  alertSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f5f5f5',
+  },
+  alertSummaryText: {
+    fontSize: 13,
+    color: '#8e8e93',
+    fontWeight: '500',
+  },
+  alertStatusDots: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusDotCritical: {
+    backgroundColor: '#FF3B30',
+  },
+  statusDotWarning: {
+    backgroundColor: '#FF9500',
+  },
+  statusDotInfo: {
+    backgroundColor: '#007AFF',
+  },
+  sosMainContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    marginBottom: 20,
+  },
+  sosCircleButtonOuterRing: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    marginBottom: 20,
+  },
+  sosCircleButton: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: '#dc3545',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  sosCircleButtonActive: {
+    backgroundColor: '#cc0000',
+  },
+  sosCircleButtonUrgent: {
+    borderWidth: 3,
+    borderColor: '#ff0000',
+    shadowColor: '#ff0000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  sosCircleButtonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sosCircleButtonText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  sosCircleButtonSubtext: {
+    fontSize: 14,
+    color: '#fff',
+    textAlign: 'center',
+    opacity: 0.9,
+  },
+  secondaryButtonsContainer: {
+    flexDirection: 'column',
+    width: '100%',
+    gap: 12,
+    marginBottom: 0,
+    paddingBottom: 0,
+    marginTop: 0,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  secondaryButtonContent: {
+    alignItems: 'center',
+  },
+  followMeButton: {
+    borderWidth: 2,
+    borderColor: '#007AFF',
+  },
+  followMeButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  followMeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginTop: 6,
+  },
+  torchButton: {
+    borderWidth: 2,
+    borderColor: '#FFD700',
+  },
+  torchButtonActive: {
+    backgroundColor: '#FFD700',
+  },
+  torchButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFD700',
+    marginTop: 6,
+  },
+  discreetAlarmButton: {
+    borderWidth: 2,
+    borderColor: '#FF6B35',
+  },
+  discreetAlarmButtonActive: {
+    backgroundColor: '#FF6B35',
+  },
+  discreetAlarmButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FF6B35',
+    marginTop: 6,
+  },
+  helpdeskButton: {
+    borderWidth: 2,
+    borderColor: '#8B5CF6',
+  },
+  helpdeskButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#8B5CF6',
+    marginTop: 6,
+  },
+  secondaryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginTop: 6,
+  },
+  secondaryButtonTextLight: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginTop: 8,
+  },
+  secondaryButtonTextActive: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  // Countdown styles
+  countdownContainer: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  countdownText: {
+    fontSize: 60,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  alarmRingingContainer: {
+    backgroundColor: '#ffebee',
+    borderColor: '#ff1744',
+    borderWidth: 2,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    shadowColor: '#ff1744',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  alarmRingingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  alarmRingingText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#d32f2f',
+    marginLeft: 12,
+  },
+  stopAlarmButton: {
+    backgroundColor: '#ff1744',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  stopAlarmButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
+
+// Export the HomeScreen component as the default export
+export { HomeScreen as default };

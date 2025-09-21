@@ -1,35 +1,88 @@
-import { DataTypes, Model } from 'sequelize';
-import { sequelize } from '../config/database.js';
+import mongoose from 'mongoose';
 
-class Notification extends Model {}
-
-Notification.init({
-    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
-    recipientId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
-    title: { type: DataTypes.STRING, allowNull: false },
-    message: { type: DataTypes.TEXT, allowNull: false },
-    type: { 
-        type: DataTypes.ENUM('sos', 'safety_alert', 'system'), 
-        allowNull: false 
-    },
-    priority: { 
-        type: DataTypes.ENUM('low', 'normal', 'high', 'urgent'), 
-        defaultValue: 'normal' 
-    },
-    alertId: { type: DataTypes.INTEGER.UNSIGNED },
-    locationLat: { type: DataTypes.DECIMAL(10, 8) },
-    locationLng: { type: DataTypes.DECIMAL(11, 8) },
-    read: { type: DataTypes.BOOLEAN, defaultValue: false }
+const notificationSchema = new mongoose.Schema({
+  recipientId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  senderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  type: {
+    type: String,
+    enum: [
+      'guardian_activated',
+      'guardian_location_update',
+      'guardian_check_in',
+      'guardian_emergency',
+      'guardian_completed',
+      'sos_alert',
+      'safety_alert',
+      'emergency_alert',
+      'system_notification'
+    ],
+    required: true
+  },
+  title: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  message: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  data: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  isRead: {
+    type: Boolean,
+    default: false
+  },
+  readAt: {
+    type: Date,
+    default: null
+  },
+  isDelivered: {
+    type: Boolean,
+    default: false
+  },
+  deliveredAt: {
+    type: Date,
+    default: null
+  },
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high', 'urgent'],
+    default: 'medium'
+  },
+  channels: [{
+    type: String,
+    enum: ['push', 'email', 'sms', 'in_app'],
+    required: true
+  }],
+  guardianSessionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'GuardianSession',
+    default: null
+  },
+  expiresAt: {
+    type: Date,
+    default: null
+  }
 }, {
-    sequelize,
-    tableName: 'notifications',
-    timestamps: true,
-    indexes: [
-        { fields: ['recipientId'] },
-        { fields: ['type'] },
-        { fields: ['read'] }
-    ]
+  timestamps: true
 });
 
-export default Notification;
+// Index for efficient queries
+notificationSchema.index({ recipientId: 1, isRead: 1 });
+notificationSchema.index({ type: 1 });
+notificationSchema.index({ createdAt: -1 });
+notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+export default mongoose.model('Notification', notificationSchema);

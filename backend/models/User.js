@@ -1,52 +1,113 @@
-﻿import { DataTypes, Model } from 'sequelize';
+import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
-import { sequelize } from '../config/database.js'; // Sequelize instance
 
-class User extends Model {
-    // Compare plaintext password with hashed password
-    async comparePassword(candidatePassword) {
-        return bcrypt.compare(candidatePassword, this.password);
-    }
-}
-
-User.init(
-    {
-        id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
-        name: { type: DataTypes.STRING, allowNull: false },
-        email: { type: DataTypes.STRING, allowNull: false, unique: true },
-        password: { type: DataTypes.STRING, allowNull: false },
-
-        role: { type: DataTypes.ENUM('student', 'staff', 'security', 'admin', 'guest'), defaultValue: 'student' },
-        studentId: { type: DataTypes.STRING },
-        phone: { type: DataTypes.STRING },
-
-        googleId: { type: DataTypes.STRING },
-        avatar: { type: DataTypes.STRING },
-
-        isVerified: { type: DataTypes.BOOLEAN, defaultValue: false },
-        verificationToken: { type: DataTypes.STRING },
-        resetPasswordToken: { type: DataTypes.STRING },
-        resetPasswordExpires: { type: DataTypes.DATE },
-
-        preferences: { type: DataTypes.JSON, defaultValue: {} },
-        privacySettings: { type: DataTypes.JSON, defaultValue: {} },
-
-        emergencyContacts: { type: DataTypes.JSON, defaultValue: [] },
-        trustedCircle: { type: DataTypes.JSON, defaultValue: [] },
+const userSchema = new mongoose.Schema({
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  role: {
+    type: String,
+    enum: ['student', 'staff', 'security', 'admin'],
+    required: true
+  },
+  avatar: {
+    type: String,
+    default: null
+  },
+  phone: {
+    type: String,
+    trim: true
+  },
+  university: {
+    type: String,
+    trim: true
+  },
+  studentId: {
+    type: String,
+    trim: true
+  },
+  emergencyContacts: [{
+    name: {
+      type: String,
+      required: true
     },
-    {
-        sequelize,
-        tableName: 'users',
-        timestamps: true,
-        hooks: {
-            beforeSave: async (user) => {
-                if (user.changed('password')) {
-                    const salt = await bcrypt.genSalt(10);
-                    user.password = await bcrypt.hash(user.password, salt);
-                }
-            },
-        },
+    phone: {
+      type: String,
+      required: true
+    },
+    relationship: {
+      type: String,
+      required: true
+    },
+    isPrimary: {
+      type: Boolean,
+      default: false
     }
-);
+  }],
+  pushToken: {
+    type: String,
+    default: null
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  lastLogin: {
+    type: Date,
+    default: null
+  },
+  preferences: {
+    notifications: {
+      guardianAlerts: { type: Boolean, default: true },
+      emergencyAlerts: { type: Boolean, default: true },
+      safetyUpdates: { type: Boolean, default: true }
+    },
+    privacy: {
+      shareLocation: { type: Boolean, default: true },
+      shareStatus: { type: Boolean, default: true }
+    }
+  }
+}, {
+  timestamps: true
+});
 
-export default User;
+// Hash password before saving
+userSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Compare password method
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Remove password from JSON output
+userSchema.methods.toJSON = function() {
+  const user = this.toObject();
+  delete user.password;
+  return user;
+};
+
+export default mongoose.model('User', userSchema);

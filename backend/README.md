@@ -1,202 +1,227 @@
-# UniSave Backend - Campus Safety App
+# UniSafe Backend API
 
-This is the backend server for the UniSave campus safety application, built with Node.js, Express, and MongoDB.
+A comprehensive backend API for the UniSafe safety application, built with Node.js, Express, and MongoDB.
 
-## 🚀 Features
+## Features
 
-- **User Authentication with Email Verification**
-- **JWT-based Security**
-- **Role-based Access Control** (Student, Staff, Teacher, Security)
-- **Real-time Communication** with Socket.IO
-- **Email Service Integration**
-- **MongoDB Database**
-- **RESTful API Design**
+- **User Authentication & Authorization**: JWT-based authentication with role-based access control
+- **Guardian Mode**: Real-time location tracking and safety monitoring for students
+- **SOS Alert System**: Emergency alert system with staff monitoring
+- **Push Notifications**: Real-time notifications via Expo push notifications
+- **Real-time Communication**: WebSocket support for live updates
+- **Staff Dashboard**: Comprehensive monitoring tools for security staff
 
-## 📋 Prerequisites
+## Tech Stack
 
-- Node.js (v16 or higher)
-- MongoDB (local or cloud instance)
-- SMTP email service (Gmail, SendGrid, etc.)
+- **Runtime**: Node.js with ES Modules
+- **Framework**: Express.js
+- **Database**: MongoDB with Mongoose
+- **Authentication**: JWT (JSON Web Tokens)
+- **Real-time**: Socket.IO
+- **Notifications**: Expo Server SDK
+- **Email**: Nodemailer
+- **Security**: Helmet, CORS, Rate Limiting
 
-## 🛠️ Installation
+## API Endpoints
 
-1. **Clone the repository and navigate to backend:**
-   ```bash
-   cd campus-safety-backend
-   ```
+### Authentication (`/api/auth`)
+- `POST /register` - Register new user
+- `POST /login` - User login
+- `GET /me` - Get current user
+- `PUT /profile` - Update user profile
+- `POST /push-token` - Update push notification token
+- `POST /logout` - User logout
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+### Guardian Mode (`/api/guardian`)
+- `POST /start-session` - Start guardian session
+- `PUT /update-location` - Update current location
+- `POST /check-in` - Respond to safety check-in
+- `POST /end-session` - End guardian session
+- `GET /sessions` - Get user's guardian sessions
+- `GET /active-session` - Get current active session
 
-3. **Create environment file:**
-   ```bash
-   # Copy the template
-   cp env-template.txt .env
-   
-   # Edit .env with your configuration
-   nano .env
-   ```
+### Student Features (`/api/student`)
+- `GET /profile` - Get student profile
+- `PUT /profile` - Update student profile
+- `POST /sos` - Send SOS alert
+- `GET /sos-history` - Get SOS alert history
+- `GET /guardian-sessions` - Get guardian sessions
+- `GET /dashboard` - Get student dashboard data
 
-4. **Configure environment variables:**
-   ```env
-   # Database Configuration
-   MONGO_URI=mongodb://localhost:27017/campus-safety
-   
-   # JWT Configuration
-   JWT_SECRET=your-super-secret-jwt-key-here
-   JWT_EXPIRE=7d
-   
-   # Email Configuration (Gmail example)
-   EMAIL_HOST=smtp.gmail.com
-   EMAIL_PORT=587
-   EMAIL_USER=your-email@gmail.com
-   EMAIL_PASS=your-app-password
-   EMAIL_FROM=your-email@gmail.com
-   
-   # Google OAuth (optional)
-   GOOGLE_CLIENT_ID=your-google-oauth-client-id
-   
-   # Server Configuration
-   PORT=5000
-   NODE_ENV=development
-   
-   # CORS Configuration
-   ALLOWED_ORIGINS=http://localhost:3000,http://localhost:19006
-   ```
+### Staff Features (`/api/staff`)
+- `GET /sos-monitoring` - Get SOS alerts for monitoring
+- `PUT /sos-alert/:alertId/acknowledge` - Acknowledge SOS alert
+- `PUT /sos-alert/:alertId/resolve` - Resolve SOS alert
+- `GET /guardian-sessions` - Get active guardian sessions
+- `GET /guardian-session/:sessionId` - Get specific guardian session
+- `GET /dashboard` - Get staff dashboard data
+- `GET /students` - Get all students
+- `GET /student/:studentId` - Get specific student details
 
-## 🚀 Running the Server
+### Notifications (`/api/notifications`)
+- `GET /` - Get user's notifications
+- `PUT /:notificationId/read` - Mark notification as read
+- `PUT /read-all` - Mark all notifications as read
+- `DELETE /:notificationId` - Delete notification
+- `GET /unread-count` - Get unread notification count
+- `GET /stats` - Get notification statistics
 
-### Development Mode
-```bash
-npm run dev
+## Environment Variables
+
+Create a `.env` file in the backend directory:
+
+```env
+# Server Configuration
+PORT=3000
+NODE_ENV=development
+
+# Database
+MONGODB_URI=mongodb://localhost:27017/unisafe
+
+# JWT Secret
+JWT_SECRET=your-super-secret-jwt-key-here
+
+# Expo Push Notifications
+EXPO_ACCESS_TOKEN=your-expo-access-token
+
+# Email Configuration
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASS=your-app-password
+
+# Frontend URL
+FRONTEND_URL=http://localhost:8081
+
+# Google Maps API
+GOOGLE_MAPS_API_KEY=your-google-maps-api-key
 ```
 
-### Production Mode
+## Installation
+
+1. Install dependencies:
 ```bash
+npm install
+```
+
+2. Set up environment variables:
+```bash
+cp env.example .env
+# Edit .env with your configuration
+```
+
+3. Start the server:
+```bash
+# Development
+npm run dev
+
+# Production
 npm start
 ```
 
-The server will run on `http://localhost:5000`
+## Database Models
 
-## 🧪 Testing
+### User
+- User authentication and profile information
+- Role-based access (student, staff, security, admin)
+- Emergency contacts and preferences
 
-### Test Backend Connection
-```bash
-npm run test-connection
-```
+### GuardianSession
+- Active guardian mode sessions
+- Location tracking and route history
+- Safety check-ins and emergency escalation
 
-### Test Email Service
-```bash
-npm run test-email
-```
+### SOSAlert
+- Emergency alerts from students
+- Staff assignment and response tracking
+- Resolution and notes
 
-### Test Frontend-Backend Connection
-Open `test-frontend.html` in your browser to test the API endpoints.
+### Notification
+- Push, email, and in-app notifications
+- Multi-channel delivery system
+- Read status and priority levels
 
-## 📡 API Endpoints
+## Real-time Features
 
-### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `GET /api/auth/verify-email/:token` - Email verification
-- `POST /api/auth/resend-verification` - Resend verification email
-- `POST /api/auth/logout` - User logout
-- `GET /api/auth/me` - Get current user profile
+The API supports real-time communication through Socket.IO:
 
-### User Management
-- `PUT /api/auth/profile` - Update user profile
-- `PUT /api/auth/privacy` - Update privacy settings
-- `PUT /api/auth/preferences` - Update app preferences
-- `POST /api/auth/trusted-circle` - Manage trusted circle
-- `POST /api/auth/emergency-contacts` - Manage emergency contacts
+- **Location Updates**: Live location tracking during guardian sessions
+- **SOS Alerts**: Instant emergency notifications
+- **Guardian Notifications**: Real-time updates to trusted contacts
+- **Staff Monitoring**: Live dashboard updates for security staff
 
-### SOS & Safety
-- `POST /api/sos/alert` - Create SOS alert
-- `GET /api/sos/mine` - Get user's alerts
-- `PATCH /api/sos/:id/resolve` - Resolve alert
+## Security Features
 
-## 🔐 Email Verification Flow
+- JWT-based authentication
+- Role-based authorization
+- Rate limiting
+- CORS protection
+- Helmet security headers
+- Input validation and sanitization
 
-1. **User Registration**: Account created with `isVerified: false`
-2. **Verification Email**: Sent automatically with verification link
-3. **Email Verification**: User clicks link to verify account
-4. **Account Activation**: Verified users can now log in
+## Notification System
 
-## 🌐 CORS Configuration
+- **Push Notifications**: Via Expo push notification service
+- **Email Notifications**: HTML email templates
+- **SMS Notifications**: Placeholder for SMS service integration
+- **In-app Notifications**: Real-time updates via WebSocket
 
-The backend is configured to accept requests from:
-- `http://localhost:3000` (React development)
-- `http://localhost:19006` (Expo development)
+## API Documentation
 
-## 📱 Frontend Integration
+The API follows RESTful conventions and returns JSON responses. All endpoints require authentication unless specified otherwise.
 
-The backend is designed to work with React Native/Expo frontend applications. The API endpoints return JSON responses with consistent structure:
+### Response Format
 
 ```json
 {
-  "success": true,
-  "message": "Operation successful",
-  "user": { /* user data */ },
-  "token": "jwt-token-here"
+  "message": "Success message",
+  "data": { ... },
+  "error": "Error message (if applicable)"
 }
 ```
 
-## 🔧 Common Issues & Solutions
+### Error Handling
 
-### 1. MongoDB Connection Failed
-- Ensure MongoDB is running
-- Check `MONGO_URI` in `.env`
-- Verify network connectivity
+The API returns appropriate HTTP status codes:
+- `200` - Success
+- `201` - Created
+- `400` - Bad Request
+- `401` - Unauthorized
+- `403` - Forbidden
+- `404` - Not Found
+- `500` - Internal Server Error
 
-### 2. Email Not Sending
-- Check SMTP configuration in `.env`
-- For Gmail, use App Password (not regular password)
-- Verify firewall/network settings
+## Development
 
-### 3. JWT Errors
-- Ensure `JWT_SECRET` is set in `.env`
-- Check token expiration settings
+The backend uses ES modules and modern JavaScript features. Make sure you're using Node.js 14+ for full compatibility.
 
-### 4. CORS Issues
-- Verify `ALLOWED_ORIGINS` in `.env`
-- Check frontend URL matches allowed origins
+### Project Structure
 
-## 🚀 Deployment
-
-### Environment Variables
-Set production environment variables:
-```env
-NODE_ENV=production
-MONGO_URI=your-production-mongodb-uri
-JWT_SECRET=your-production-jwt-secret
-EMAIL_HOST=your-production-smtp-host
-EMAIL_USER=your-production-email
-EMAIL_PASS=your-production-email-password
+```
+backend/
+├── config/
+│   └── database.js
+├── middleware/
+│   └── auth.js
+├── models/
+│   ├── User.js
+│   ├── GuardianSession.js
+│   ├── Notification.js
+│   └── SOSAlert.js
+├── routes/
+│   ├── auth.js
+│   ├── guardian.js
+│   ├── student.js
+│   ├── staff.js
+│   └── notifications.js
+├── services/
+│   ├── notificationService.js
+│   └── socketService.js
+├── server.js
+├── package.json
+└── README.md
 ```
 
-### Process Management
-Use PM2 or similar process manager:
-```bash
-npm install -g pm2
-pm2 start server.js --name "unisave-backend"
-pm2 startup
-pm2 save
-```
+## License
 
-## 📚 API Documentation
-
-For detailed API documentation, see the individual route files in the `routes/` directory.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Make changes
-4. Test thoroughly
-5. Submit pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
+MIT License - see LICENSE file for details.

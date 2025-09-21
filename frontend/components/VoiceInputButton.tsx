@@ -3,7 +3,6 @@ import { TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import speechToTextService from '../services/SpeechToTextService';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.0.100:5000";
 interface VoiceInputButtonProps {
   onPress?: () => void;
   prompt?: string;

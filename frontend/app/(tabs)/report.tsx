@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Video, ResizeMode, Audio } from "expo-av";
+import { VideoView, useVideoPlayer } from "expo-video";
+import * as ExpoAudio from "expo-audio";
 import { useCallback } from "react";
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -19,7 +20,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.0.100:5000";
 import * as ImagePicker from 'expo-image-picker';
 import type { ComponentProps } from "react";
 import { startRecording, stopRecording, convertSpeechToText } from '../../services/speech';
@@ -94,8 +94,7 @@ const mockRecentReports: Report[] = [
     upvotes: 12,
     isUpvoted: false,
     media: [
-      { uri: 'https://picsum.photos/400/300', type: 'image' },
-      { uri: 'https://picsum.photos/400/301', type: 'image' }
+      { uri: 'https://cdn.shortpixel.ai/spai/q_lossy+ret_img+to_webp/https://www.blgwins.com/wp-content/uploads/2024/05/can-you-sue-your-boss-for-verbal-abuse.jpg', type: 'image' }
     ],
     comments: [
       {
@@ -130,7 +129,7 @@ const mockRecentReports: Report[] = [
     upvotes: 8,
     isUpvoted: false,
     media: [
-      { uri: 'https://picsum.photos/400/302', type: 'image' }
+      { uri: 'https://tse4.mm.bing.net/th/id/OIP.GHbi1-l_Vlcr1V62lawmLgHaE8?rs=1&pid=ImgDetMain&o=7&rm=3', type: 'image' }
     ],
     comments: [
       {
@@ -192,6 +191,75 @@ const reportTypes: ReportType[] = [
   { key: "other", label: "Other", icon: "ellipsis-horizontal", color: "#8E8E93" },
 ];
 
+// Component for displaying media in main view
+const MediaItem = ({ item }: { item: { uri: string; type: "image" | "video" } }) => {
+  if (item.type === "video") {
+    // Only create video player when needed
+    const videoPlayer = useVideoPlayer({ uri: item.uri }, player => {
+      player.loop = true;
+    });
+    
+    return (
+      <View style={styles.mediaItem}>
+        <VideoView
+          style={styles.mediaImage}
+          player={videoPlayer}
+          nativeControls={true}
+          contentFit="cover"
+        />
+      </View>
+    );
+  } else {
+    return (
+      <View style={styles.mediaItem}>
+        <Image source={{ uri: item.uri }} style={styles.mediaImage} />
+      </View>
+    );
+  }
+};
+
+// Component for displaying media in preview section
+const PreviewMediaItem = ({ item, removeMedia }: { 
+  item: { uri: string; type: "image" | "video" }, 
+  removeMedia: (uri: string) => void 
+}) => {
+  if (item.type === "video") {
+    // Only create video player when needed
+    const videoPlayer = useVideoPlayer({ uri: item.uri }, player => {
+      player.loop = true;
+    });
+    
+    return (
+      <View style={styles.imagePreview}>
+        <VideoView
+          style={styles.previewImage}
+          player={videoPlayer}
+          nativeControls={true}
+          contentFit="cover"
+        />
+        <TouchableOpacity
+          style={styles.removeImageButton}
+          onPress={() => removeMedia(item.uri)}
+        >
+          <Ionicons name="close-circle" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    );
+  } else {
+    return (
+      <View style={styles.imagePreview}>
+        <Image source={{ uri: item.uri }} style={styles.previewImage} />
+        <TouchableOpacity
+          style={styles.removeImageButton}
+          onPress={() => removeMedia(item.uri)}
+        >
+          <Ionicons name="close-circle" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+};
+
 const MediaDisplay = ({ media }: { media: { uri: string; type: "image" | "video" }[] }) => {
   if (!media || media.length === 0) return null;
 
@@ -199,19 +267,7 @@ const MediaDisplay = ({ media }: { media: { uri: string; type: "image" | "video"
     <View style={styles.mediaContainer}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mediaScrollView}>
         {media.map((item, index) => (
-          <View key={index} style={styles.mediaItem}>
-            {item.type === "video" ? (
-              <Video
-                source={{ uri: item.uri }}
-                style={styles.mediaImage}
-                useNativeControls
-                resizeMode={ResizeMode.COVER}
-                isLooping
-              />
-            ) : (
-              <Image source={{ uri: item.uri }} style={styles.mediaImage} />
-            )}
-          </View>
+          <MediaItem key={index} item={item} />
         ))}
       </ScrollView>
     </View>
@@ -285,16 +341,16 @@ export default function ReportScreen() {
   }, [showCommentModal, showReportModal, showSortModal, showSearchModal]);
 
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [recording, setRecording] = useState<any>(null);
   const [processingSpeech, setProcessingSpeech] = useState(false);
 
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordingRef = useRef<any>(null);
 
   {/* Speech-to-text functions */ }
   const startSpeechToText = async () => {
     try {
       {/* Request permissions first */ }
-      const { status } = await Audio.requestPermissionsAsync();
+      const { status } = await ExpoAudio.AudioModule.requestRecordingPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission required', 'Microphone access is needed for voice search');
         return;
@@ -1520,26 +1576,7 @@ export default function ReportScreen() {
               {/* Previews */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                 {media.map((item, idx) => (
-                  <View key={idx} style={styles.imagePreview}>
-                    {item.type === "video" ? (
-                      <Video
-                        source={{ uri: item.uri }}
-                        style={styles.previewImage}
-                        useNativeControls
-                        resizeMode={ResizeMode.COVER}
-                        isLooping
-                      />
-                    ) : (
-                      <Image source={{ uri: item.uri }} style={styles.previewImage} />
-                    )}
-
-                    <TouchableOpacity
-                      style={styles.removeImageButton}
-                      onPress={() => removeMedia(item.uri)}
-                    >
-                      <Ionicons name="close-circle" size={24} color="#FF3B30" />
-                    </TouchableOpacity>
-                  </View>
+                  <PreviewMediaItem key={idx} item={item} removeMedia={removeMedia} />
                 ))}
               </ScrollView>
 

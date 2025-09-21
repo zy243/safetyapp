@@ -1,54 +1,53 @@
-﻿// app/_layout.tsx
-import React, { useEffect } from "react";
+// app/_layout.tsx
 import { Stack } from "expo-router";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
-import { GuardianProvider } from "../contexts/GuardianContext";
+import { SOSProvider } from "../contexts/SOSContext";
+import { AlarmProvider } from "../contexts/AlarmContext";
 import LoadingScreen from "../components/LoadingScreen";
-import { checkAuth } from "../services/api"; // call backend API
+import NotificationService from "../services/NotificationService";
+import { useEffect } from "react";
+import "react-native-get-random-values";
 
 function LayoutContent() {
-    const { isLoading, user, setUser, setIsLoading } = useAuth();
+  const { isLoading, user, updatePushToken } = useAuth();
 
-    // 🔹 On first load, check backend for logged-in user
-    useEffect(() => {
-        async function fetchUser() {
-            try {
-                const data = await checkAuth(); // GET /api/auth/check
-                if (data?.user) {
-                    setUser(data.user); // backend user object
-                }
-            } catch (err) {
-                console.log("Auth check failed:", err);
-            } finally {
-                setIsLoading(false);
-            }
-        }
-        fetchUser();
-    }, []);
-
-    if (isLoading) {
-        return <LoadingScreen />;
+  // Initialize notification service when user is logged in
+  useEffect(() => {
+    if (user) {
+      NotificationService.initialize(user.id, updatePushToken);
     }
+  }, [user, updatePushToken]);
 
-    return (
-        <Stack screenOptions={{ headerShown: false }}>
-            {!user ? (
-                // If no user, show login/index page
-                <Stack.Screen name="index" />
-            ) : (
-                // If logged in, show tabs/dashboard
-                <Stack.Screen name="(tabs)" />
-            )}
-        </Stack>
-    );
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+  
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      {user ? (
+        // User is logged in → show main app
+        <>
+
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="(guardianTabs)" />
+          <Stack.Screen name="staff" />
+        </>
+      ) : (
+        // User not logged in → show login
+        <Stack.Screen name="login" /> 
+      )}
+    </Stack>
+  );
 }
 
 export default function RootLayout() {
-    return (
-        <AuthProvider>
-            <GuardianProvider>
-                <LayoutContent />
-            </GuardianProvider>
-        </AuthProvider>
-    );
+  return (
+    <AuthProvider>
+      <SOSProvider>
+        <AlarmProvider>
+          <LayoutContent />
+        </AlarmProvider>
+      </SOSProvider>
+    </AuthProvider>
+  );
 }

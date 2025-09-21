@@ -1,34 +1,139 @@
-import { DataTypes, Model } from 'sequelize';
-import { sequelize } from '../config/database.js';
+import mongoose from 'mongoose';
 
-class GuardianSession extends Model {}
-
-GuardianSession.init({
-    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
-    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
-    destination: { type: DataTypes.STRING, allowNull: false },
-    destinationLat: { type: DataTypes.DECIMAL(10, 8) },
-    destinationLng: { type: DataTypes.DECIMAL(11, 8) },
-    estimatedDuration: { type: DataTypes.INTEGER, allowNull: false }, // in minutes
-    trustedContacts: { type: DataTypes.JSON, defaultValue: [] },
-    checkIns: { type: DataTypes.JSON, defaultValue: [] },
-    currentStatus: { 
-        type: DataTypes.ENUM('active', 'completed', 'cancelled', 'overdue', 'emergency'), 
-        defaultValue: 'active' 
+const guardianSessionSchema = new mongoose.Schema({
+  studentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  sessionId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  destination: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  startTime: {
+    type: Date,
+    required: true,
+    default: Date.now
+  },
+  estimatedArrival: {
+    type: Date,
+    required: true
+  },
+  actualArrival: {
+    type: Date,
+    default: null
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  route: [{
+    latitude: {
+      type: Number,
+      required: true
     },
-    startTime: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
-    endTime: { type: DataTypes.DATE },
-    estimatedArrival: { type: DataTypes.DATE },
-    actualArrival: { type: DataTypes.DATE },
-    routeDeviations: { type: DataTypes.JSON, defaultValue: [] },
-    alertsSent: { type: DataTypes.JSON, defaultValue: [] }
+    longitude: {
+      type: Number,
+      required: true
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  currentLocation: {
+    latitude: {
+      type: Number,
+      required: true
+    },
+    longitude: {
+      type: Number,
+      required: true
+    },
+    lastUpdated: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  trustedContacts: [{
+    contactId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    name: {
+      type: String,
+      required: true
+    },
+    phone: {
+      type: String,
+      required: true
+    },
+    relationship: {
+      type: String,
+      required: true
+    },
+    isNotified: {
+      type: Boolean,
+      default: false
+    },
+    notificationSentAt: {
+      type: Date,
+      default: null
+    }
+  }],
+  checkInInterval: {
+    type: Number,
+    default: 5 // minutes
+  },
+  lastCheckIn: {
+    type: Date,
+    default: null
+  },
+  nextCheckIn: {
+    type: Date,
+    default: null
+  },
+  safetyChecks: [{
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    response: {
+      type: String,
+      enum: ['yes', 'no', 'pending', 'missed'],
+      default: 'pending'
+    },
+    location: {
+      latitude: Number,
+      longitude: Number
+    }
+  }],
+  status: {
+    type: String,
+    enum: ['active', 'completed', 'cancelled', 'emergency'],
+    default: 'active'
+  },
+  emergencyEscalated: {
+    type: Boolean,
+    default: false
+  },
+  emergencyEscalatedAt: {
+    type: Date,
+    default: null
+  }
 }, {
-    sequelize,
-    tableName: 'guardian_sessions',
-    timestamps: true,
-    indexes: [
-        { fields: ['userId', 'currentStatus'] }
-    ]
+  timestamps: true
 });
 
-export default GuardianSession;
+// Index for efficient queries
+guardianSessionSchema.index({ studentId: 1, isActive: 1 });
+guardianSessionSchema.index({ sessionId: 1 });
+guardianSessionSchema.index({ createdAt: -1 });
+
+export default mongoose.model('GuardianSession', guardianSessionSchema);

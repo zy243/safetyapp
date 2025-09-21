@@ -1,77 +1,142 @@
-﻿import { DataTypes, Model } from 'sequelize';
-import { sequelize } from '../config/database.js';
-import { SOS_SEVERITY } from '../config/constants.js';
+import mongoose from 'mongoose';
 
-class SOSAlert extends Model {
-    get formattedTime() {
-        return this.createdAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-    }
-
-    get duration() {
-        if (this.resolvedAt) return Math.round((this.resolvedAt - this.createdAt) / 1000);
-        return Math.round((Date.now() - this.createdAt) / 1000);
-    }
-
-    async resolve(userId, notes = '') {
-        this.status = 'resolved';
-        this.handledBy = userId;
-        this.resolvedAt = new Date();
-        this.notes = notes;
-        return await this.save();
-    }
-
-    static async findActive() {
-        return await this.findAll({ 
-            where: { status: 'active' },
-            order: [['createdAt', 'DESC']]
-        });
-    }
-}
-
-SOSAlert.init({
-    id: { type: DataTypes.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
-    userId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
-    message: { type: DataTypes.STRING, defaultValue: 'Emergency SOS activated' },
-    summary: { type: DataTypes.TEXT },
-    severity: {
-        type: DataTypes.ENUM(Object.values(SOS_SEVERITY)),
-        defaultValue: SOS_SEVERITY.HIGH
+const sosAlertSchema = new mongoose.Schema({
+  studentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  alertId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  location: {
+    latitude: {
+      type: Number,
+      required: true
     },
-    locationType: { type: DataTypes.STRING, defaultValue: 'Point' },
-    locationLat: { type: DataTypes.DECIMAL(10, 8) },
-    locationLng: { type: DataTypes.DECIMAL(11, 8) },
-    locationAddress: { type: DataTypes.STRING, defaultValue: 'Location not available' },
-    status: { 
-        type: DataTypes.ENUM('active', 'resolved', 'cancelled'), 
-        defaultValue: 'active' 
+    longitude: {
+      type: Number,
+      required: true
     },
-    triggeredBy: { 
-        type: DataTypes.ENUM('manual', 'automatic', 'guardian'), 
-        defaultValue: 'manual' 
+    address: {
+      type: String,
+      trim: true
+    }
+  },
+  timestamp: {
+    type: Date,
+    required: true,
+    default: Date.now
+  },
+  status: {
+    type: String,
+    enum: ['active', 'acknowledged', 'resolved', 'false_alarm'],
+    default: 'active'
+  },
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high', 'critical'],
+    default: 'high'
+  },
+  description: {
+    type: String,
+    trim: true
+  },
+  media: [{
+    type: {
+      type: String,
+      enum: ['image', 'video', 'audio']
     },
-    handledBy: { type: DataTypes.INTEGER.UNSIGNED },
-    photoCaptured: { type: DataTypes.BOOLEAN, defaultValue: false },
-    videoRecording: { type: DataTypes.BOOLEAN, defaultValue: false },
-    locationObtained: { type: DataTypes.BOOLEAN, defaultValue: false },
-    contactsNotified: { type: DataTypes.BOOLEAN, defaultValue: false },
-    mediaPhotos: { type: DataTypes.JSON, defaultValue: [] },
-    mediaVideos: { type: DataTypes.JSON, defaultValue: [] },
-    emergencyServicesCalled: { type: DataTypes.BOOLEAN, defaultValue: false },
-    emergencyServicesCallTime: { type: DataTypes.DATE },
-    emergencyServicesReferenceNumber: { type: DataTypes.STRING },
-    contacts: { type: DataTypes.JSON, defaultValue: [] },
-    resolvedAt: { type: DataTypes.DATE },
-    respondedBy: { type: DataTypes.INTEGER.UNSIGNED },
-    notes: { type: DataTypes.TEXT }
+    url: {
+      type: String,
+      required: true
+    },
+    filename: {
+      type: String,
+      required: true
+    }
+  }],
+  assignedStaff: [{
+    staffId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    assignedAt: {
+      type: Date,
+      default: Date.now
+    },
+    status: {
+      type: String,
+      enum: ['assigned', 'acknowledged', 'en_route', 'on_site', 'resolved'],
+      default: 'assigned'
+    }
+  }],
+  response: {
+    acknowledgedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    acknowledgedAt: {
+      type: Date,
+      default: null
+    },
+    resolvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    resolvedAt: {
+      type: Date,
+      default: null
+    },
+    resolution: {
+      type: String,
+      trim: true
+    },
+    notes: {
+      type: String,
+      trim: true
+    }
+  },
+  notifications: [{
+    recipientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now
+    },
+    channel: {
+      type: String,
+      enum: ['push', 'email', 'sms']
+    },
+    status: {
+      type: String,
+      enum: ['sent', 'delivered', 'failed']
+    }
+  }],
+  isEscalated: {
+    type: Boolean,
+    default: false
+  },
+  escalatedAt: {
+    type: Date,
+    default: null
+  },
+  escalatedTo: [{
+    type: String,
+    enum: ['security', 'police', 'emergency_services', 'university_admin']
+  }]
 }, {
-    sequelize,
-    tableName: 'sos_alerts',
-    timestamps: true,
-    indexes: [
-        { fields: ['status', 'createdAt'] },
-        { fields: ['userId', 'createdAt'] },
-        { fields: ['userId', 'status'] }
-    ]
+  timestamps: true
 });
 
-export default SOSAlert;
+// Index for efficient queries
+sosAlertSchema.index({ studentId: 1, status: 1 });
+sosAlertSchema.index({ alertId: 1 });
+sosAlertSchema.index({ timestamp: -1 });
+sosAlertSchema.index({ status: 1, priority: 1 });
+
+export default mongoose.model('SOSAlert', sosAlertSchema);

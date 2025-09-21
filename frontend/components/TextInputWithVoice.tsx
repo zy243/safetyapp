@@ -4,7 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import VoiceInputButton from './VoiceInputButton';
 import speechToTextService from '../services/SpeechToTextService';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || "http://192.168.0.100:5000";
 interface TextInputWithVoiceProps {
   value: string;
   onChangeText: (text: string) => void;
