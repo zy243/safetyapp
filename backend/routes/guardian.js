@@ -4,29 +4,27 @@ import GuardianSession from '../models/GuardianSession.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
 import { auth } from '../middleware/auth.js';
-import { sendPushNotification } from '../services/notificationService.js';
 
 const router = express.Router();
 
 // @route   POST /api/guardian/start-session
 // @desc    Start a new guardian session
-// @access  Private (Student)
+// @access  Private
 router.post('/start-session', auth, [
-  body('destination').trim().notEmpty(),
+  body('destination').trim().isLength({ min: 1 }),
   body('estimatedArrival').isISO8601(),
   body('trustedContacts').isArray({ min: 1 }),
-  body('checkInInterval').optional().isInt({ min: 1, max: 60 })
+  body('checkInInterval').optional().isInt({ min: 1, max: 60 }),
+  body('currentLocation.latitude').isFloat(),
+  body('currentLocation.longitude').isFloat()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      return res.status(400).json({ errors: errors.array() });
     }
 
-    // Check if user is a student
-    if (req.user.role !== 'student') {
-      return res.status(403).json({ error: 'Only students can start guardian sessions' });
-    }
+    const { destination, estimatedArrival, trustedContacts, checkInInterval, currentLocation } = req.body;
 
     // Check if user already has an active session
     const existingSession = await GuardianSession.findOne({
@@ -38,133 +36,57 @@ router.post('/start-session', auth, [
       return res.status(400).json({ error: 'You already have an active guardian session' });
     }
 
-    const {
-      destination,
-      estimatedArrival,
-      trustedContacts,
-      checkInInterval = 5,
-      currentLocation
-    } = req.body;
-
-    // Create new guardian session
-    const sessionId = `guardian_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const guardianSession = new GuardianSession({
+    // Create new session
+    const session = new GuardianSession({
       studentId: req.user._id,
-      sessionId,
+      sessionId: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       destination,
       estimatedArrival: new Date(estimatedArrival),
-      checkInInterval,
-      currentLocation: currentLocation || {
-        latitude: 0,
-        longitude: 0,
-        lastUpdated: new Date()
-      },
-      trustedContacts: trustedContacts.map(contact => ({
-        ...contact,
-        isNotified: false
-      }))
+      trustedContacts,
+      checkInInterval: checkInInterval || 5,
+      currentLocation,
+      route: [currentLocation]
     });
 
-    await guardianSession.save();
+    await session.save();
 
     // Send notifications to trusted contacts
-    const notificationPromises = trustedContacts.map(async (contact) => {
-      const notification = new Notification({
-        recipientId: contact.contactId,
-        senderId: req.user._id,
-        type: 'guardian_activated',
-        title: 'Guardian Mode Activated',
-        message: `${req.user.name} has activated Guardian mode and is traveling to ${destination}. You can monitor their journey in real-time.`,
-        data: {
-          sessionId: guardianSession._id,
-          studentName: req.user.name,
-          destination,
-          estimatedArrival
-        },
-        priority: 'high',
-        channels: ['push', 'in_app'],
-        guardianSessionId: guardianSession._id
-      });
+    await sendGuardianNotifications(session);
 
-      await notification.save();
-
-      // Send push notification
-      if (contact.pushToken) {
-        await sendPushNotification(contact.pushToken, {
-          title: 'Guardian Mode Activated',
-          body: `${req.user.name} has activated Guardian mode`,
-          data: {
-            type: 'guardian_activated',
-            sessionId: guardianSession._id.toString()
-          }
-        });
-      }
-
-      // Update contact notification status
-      await GuardianSession.findByIdAndUpdate(guardianSession._id, {
-        $set: {
-          'trustedContacts.$[elem].isNotified': true,
-          'trustedContacts.$[elem].notificationSentAt': new Date()
-        }
-      }, {
-        arrayFilters: [{ 'elem.contactId': contact.contactId }]
-      });
-    });
-
-    await Promise.all(notificationPromises);
-
-    res.status(201).json({
-      message: 'Guardian session started successfully',
-      session: {
-        id: guardianSession._id,
-        sessionId: guardianSession.sessionId,
-        destination: guardianSession.destination,
-        startTime: guardianSession.startTime,
-        estimatedArrival: guardianSession.estimatedArrival,
-        isActive: guardianSession.isActive,
-        trustedContacts: guardianSession.trustedContacts
-      }
-    });
+    res.status(201).json({ session });
   } catch (error) {
-    console.error('Start guardian session error:', error);
-    res.status(500).json({ error: 'Server error during guardian session start' });
+    console.error('Start session error:', error);
+    res.status(500).json({ error: 'Server error during session start' });
   }
 });
 
 // @route   PUT /api/guardian/update-location
-// @desc    Update current location during guardian session
-// @access  Private (Student)
+// @desc    Update current location
+// @access  Private
 router.put('/update-location', auth, [
   body('latitude').isFloat(),
   body('longitude').isFloat()
 ], async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
-    }
-
     const { latitude, longitude } = req.body;
 
-    // Find active session
     const session = await GuardianSession.findOne({
       studentId: req.user._id,
       isActive: true
     });
 
     if (!session) {
-      return res.status(404).json({ error: 'No active guardian session found' });
+      return res.status(404).json({ error: 'No active session found' });
     }
 
-    // Update location
+    // Update current location
     session.currentLocation = {
       latitude,
       longitude,
       lastUpdated: new Date()
     };
 
-    // Add to route history
+    // Add to route
     session.route.push({
       latitude,
       longitude,
@@ -173,10 +95,7 @@ router.put('/update-location', auth, [
 
     await session.save();
 
-    res.json({
-      message: 'Location updated successfully',
-      location: session.currentLocation
-    });
+    res.json({ session });
   } catch (error) {
     console.error('Update location error:', error);
     res.status(500).json({ error: 'Server error during location update' });
@@ -184,57 +103,37 @@ router.put('/update-location', auth, [
 });
 
 // @route   POST /api/guardian/check-in
-// @desc    Respond to safety check-in
-// @access  Private (Student)
+// @desc    Student check-in
+// @access  Private
 router.post('/check-in', auth, [
   body('response').isIn(['yes', 'no']),
-  body('location').optional().isObject()
+  body('latitude').optional().isFloat(),
+  body('longitude').optional().isFloat()
 ], async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
-    }
+    const { response, latitude, longitude } = req.body;
 
-    const { response, location } = req.body;
-
-    // Find active session
     const session = await GuardianSession.findOne({
       studentId: req.user._id,
       isActive: true
     });
 
     if (!session) {
-      return res.status(404).json({ error: 'No active guardian session found' });
+      return res.status(404).json({ error: 'No active session found' });
     }
 
     // Add safety check
     session.safetyChecks.push({
       response,
-      location: location || session.currentLocation
+      location: latitude && longitude ? { latitude, longitude } : undefined
     });
 
     session.lastCheckIn = new Date();
-
-    if (response === 'yes') {
-      // Schedule next check-in
-      session.nextCheckIn = new Date(Date.now() + session.checkInInterval * 60000);
-    } else {
-      // Escalate to emergency
-      session.status = 'emergency';
-      session.emergencyEscalated = true;
-      session.emergencyEscalatedAt = new Date();
-
-      // Notify trusted contacts and staff
-      await notifyEmergencyEscalation(session);
-    }
+    session.nextCheckIn = new Date(Date.now() + session.checkInInterval * 60000);
 
     await session.save();
 
-    res.json({
-      message: response === 'yes' ? 'Check-in recorded' : 'Emergency escalation initiated',
-      nextCheckIn: session.nextCheckIn
-    });
+    res.json({ session });
   } catch (error) {
     console.error('Check-in error:', error);
     res.status(500).json({ error: 'Server error during check-in' });
@@ -243,72 +142,31 @@ router.post('/check-in', auth, [
 
 // @route   POST /api/guardian/end-session
 // @desc    End guardian session
-// @access  Private (Student)
+// @access  Private
 router.post('/end-session', auth, async (req, res) => {
   try {
-    // Find active session
     const session = await GuardianSession.findOne({
       studentId: req.user._id,
       isActive: true
     });
 
     if (!session) {
-      return res.status(404).json({ error: 'No active guardian session found' });
+      return res.status(404).json({ error: 'No active session found' });
     }
 
-    // End session
     session.isActive = false;
     session.status = 'completed';
     session.actualArrival = new Date();
 
     await session.save();
 
-    // Notify trusted contacts
-    await notifySessionEnd(session);
+    // Send completion notifications
+    await sendSessionEndNotifications(session);
 
-    res.json({
-      message: 'Guardian session ended successfully',
-      session: {
-        id: session._id,
-        duration: session.actualArrival - session.startTime,
-        status: session.status
-      }
-    });
+    res.json({ session });
   } catch (error) {
     console.error('End session error:', error);
     res.status(500).json({ error: 'Server error during session end' });
-  }
-});
-
-// @route   GET /api/guardian/sessions
-// @desc    Get user's guardian sessions
-// @access  Private
-router.get('/sessions', auth, async (req, res) => {
-  try {
-    const { page = 1, limit = 10, status } = req.query;
-    const query = { studentId: req.user._id };
-
-    if (status) {
-      query.status = status;
-    }
-
-    const sessions = await GuardianSession.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .populate('studentId', 'name email');
-
-    const total = await GuardianSession.countDocuments(query);
-
-    res.json({
-      sessions,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      total
-    });
-  } catch (error) {
-    console.error('Get sessions error:', error);
-    res.status(500).json({ error: 'Server error during sessions retrieval' });
   }
 });
 
@@ -320,7 +178,7 @@ router.get('/active-session', auth, async (req, res) => {
     const session = await GuardianSession.findOne({
       studentId: req.user._id,
       isActive: true
-    }).populate('studentId', 'name email');
+    }).populate('trustedContacts.contactId', 'name email phone');
 
     if (!session) {
       return res.status(404).json({ error: 'No active session found' });
@@ -329,7 +187,7 @@ router.get('/active-session', auth, async (req, res) => {
     res.json({ session });
   } catch (error) {
     console.error('Get active session error:', error);
-    res.status(500).json({ error: 'Server error during active session retrieval' });
+    res.status(500).json({ error: 'Server error during session retrieval' });
   }
 });
 
@@ -368,91 +226,6 @@ router.get('/monitored-sessions', auth, async (req, res) => {
   }
 });
 
-// Helper function to notify emergency escalation
-async function notifyEmergencyEscalation(session) {
-  try {
-    const student = await User.findById(session.studentId);
-    
-    // Notify trusted contacts
-    for (const contact of session.trustedContacts) {
-      const notification = new Notification({
-        recipientId: contact.contactId,
-        senderId: session.studentId,
-        type: 'guardian_emergency',
-        title: 'Emergency Alert - Guardian Mode',
-        message: `${student.name} has not responded to safety check-in and may need help. Their last known location has been shared.`,
-        data: {
-          sessionId: session._id,
-          studentName: student.name,
-          lastLocation: session.currentLocation,
-          timestamp: new Date()
-        },
-        priority: 'urgent',
-        channels: ['push', 'email', 'sms'],
-        guardianSessionId: session._id
-      });
-
-      await notification.save();
-    }
-
-    // Notify security staff
-    const securityStaff = await User.find({ role: 'security' });
-    for (const staff of securityStaff) {
-      const notification = new Notification({
-        recipientId: staff._id,
-        senderId: session.studentId,
-        type: 'sos_alert',
-        title: 'Student Emergency - Guardian Mode',
-        message: `${student.name} (${student.studentId}) has not responded to safety check-in during Guardian mode.`,
-        data: {
-          sessionId: session._id,
-          studentName: student.name,
-          studentId: student.studentId,
-          lastLocation: session.currentLocation,
-          timestamp: new Date()
-        },
-        priority: 'urgent',
-        channels: ['push', 'email'],
-        guardianSessionId: session._id
-      });
-
-      await notification.save();
-    }
-  } catch (error) {
-    console.error('Emergency escalation notification error:', error);
-  }
-}
-
-// Helper function to notify session end
-async function notifySessionEnd(session) {
-  try {
-    const student = await User.findById(session.studentId);
-    
-    for (const contact of session.trustedContacts) {
-      const notification = new Notification({
-        recipientId: contact.contactId,
-        senderId: session.studentId,
-        type: 'guardian_completed',
-        title: 'Guardian Mode Completed',
-        message: `${student.name} has safely completed their journey to ${session.destination}.`,
-        data: {
-          sessionId: session._id,
-          studentName: student.name,
-          destination: session.destination,
-          duration: session.actualArrival - session.startTime
-        },
-        priority: 'medium',
-        channels: ['push', 'in_app'],
-        guardianSessionId: session._id
-      });
-
-      await notification.save();
-    }
-  } catch (error) {
-    console.error('Session end notification error:', error);
-  }
-}
-
 // @route   GET /api/guardian/session/:sessionId
 // @desc    Get session details
 // @access  Private
@@ -484,5 +257,59 @@ router.get('/session/:sessionId', auth, async (req, res) => {
     res.status(500).json({ error: 'Server error during session details retrieval' });
   }
 });
+
+// Helper function to send guardian notifications
+async function sendGuardianNotifications(session) {
+  try {
+    for (const contact of session.trustedContacts) {
+      const notification = new Notification({
+        recipientId: contact.contactId,
+        type: 'guardian_activated',
+        title: 'Guardian Mode Activated',
+        message: `A student has activated Guardian mode and is traveling to ${session.destination}.`,
+        data: {
+          sessionId: session._id,
+          studentName: session.studentId.name,
+          destination: session.destination,
+          startTime: session.startTime
+        },
+        guardianSessionId: session._id,
+        priority: 'high',
+        channels: ['push', 'in_app']
+      });
+
+      await notification.save();
+    }
+  } catch (error) {
+    console.error('Send guardian notifications error:', error);
+  }
+}
+
+// Helper function to send session end notifications
+async function sendSessionEndNotifications(session) {
+  try {
+    for (const contact of session.trustedContacts) {
+      const notification = new Notification({
+        recipientId: contact.contactId,
+        type: 'guardian_completed',
+        title: 'Guardian Session Completed',
+        message: `The student has safely completed their journey to ${session.destination}.`,
+        data: {
+          sessionId: session._id,
+          studentName: session.studentId.name,
+          destination: session.destination,
+          completedAt: session.actualArrival
+        },
+        guardianSessionId: session._id,
+        priority: 'medium',
+        channels: ['push', 'in_app']
+      });
+
+      await notification.save();
+    }
+  } catch (error) {
+    console.error('Session end notification error:', error);
+  }
+}
 
 export default router;

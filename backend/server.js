@@ -1,72 +1,70 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import dotenv from 'dotenv';
+import { connectDB } from './config/database.js';
 
+// Load environment variables
+dotenv.config();
+
+// Import routes
 import authRoutes from './routes/auth.js';
 import guardianRoutes from './routes/guardian.js';
 import studentRoutes from './routes/student.js';
 import staffRoutes from './routes/staff.js';
 import notificationRoutes from './routes/notifications.js';
-import { connectDB } from './config/database.js';
-import { initializeSocket } from './services/socketService.js';
-
-dotenv.config();
 
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:8081",
+    origin: process.env.CLIENT_ORIGIN || "http://localhost:19006",
     methods: ["GET", "POST"]
   }
 });
 
-// Security middleware
+// Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:8081",
+  origin: process.env.CLIENT_ORIGIN || "http://localhost:19006",
   credentials: true
 }));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
-
-// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV 
-  });
-});
-
-// API Routes
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/guardian', guardianRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV 
+  });
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+  
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: {
-      message: err.message || 'Internal Server Error',
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-    }
+  console.error(err.stack);
+  res.status(500).json({ 
+    error: 'Something went wrong!',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
   });
 });
 
@@ -75,19 +73,17 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Initialize Socket.IO
-initializeSocket(io);
-
-// Connect to database and start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 const startServer = async () => {
   try {
+    // Connect to database
     await connectDB();
+    
+    // Start server
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📱 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:8081'}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

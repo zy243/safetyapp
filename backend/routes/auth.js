@@ -1,4 +1,5 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.js';
@@ -6,59 +7,64 @@ import { auth } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
-};
-
 // @route   POST /api/auth/register
-// @desc    Register a new user
+// @desc    Register user
 // @access  Public
 router.post('/register', [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }),
   body('name').trim().isLength({ min: 2 }),
-  body('role').isIn(['student', 'staff', 'security', 'admin'])
+  body('role').isIn(['student', 'staff', 'security', 'admin']),
+  body('university').optional().trim(),
+  body('studentId').optional().trim(),
+  body('phone').optional().trim()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, name, role, phone, university, studentId } = req.body;
+    const { email, password, name, role, university, studentId, phone, emergencyContacts } = req.body;
 
-    // Check if user already exists
+    // Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ error: 'User already exists with this email' });
+      return res.status(400).json({ error: 'User already exists' });
     }
 
-    // Create new user
+    // Create user
     const user = new User({
       email,
       password,
       name,
       role,
-      phone,
       university,
-      studentId
+      studentId,
+      phone,
+      emergencyContacts: emergencyContacts || []
     });
 
     await user.save();
 
-    // Generate token
-    const token = generateToken(user._id);
+    // Generate JWT
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     res.status(201).json({
-      message: 'User registered successfully',
       token,
       user: {
         id: user._id,
         email: user.email,
         name: user.name,
         role: user.role,
-        avatar: user.avatar
+        university: user.university,
+        studentId: user.studentId,
+        phone: user.phone,
+        emergencyContacts: user.emergencyContacts
       }
     });
   } catch (error) {
@@ -77,44 +83,45 @@ router.post('/login', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      return res.status(400).json({ errors: errors.array() });
     }
 
     const { email, password } = req.body;
 
-    // Find user and include password for comparison
-    const user = await User.findOne({ email }).select('+password');
+    // Check if user exists
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Check if user is active
-    if (!user.isActive) {
-      return res.status(401).json({ error: 'Account is deactivated' });
+      return res.status(400).json({ error: 'Invalid credentials' });
     }
 
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(400).json({ error: 'Invalid credentials' });
     }
 
     // Update last login
     user.lastLogin = new Date();
     await user.save();
 
-    // Generate token
-    const token = generateToken(user._id);
+    // Generate JWT
+    const token = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     res.json({
-      message: 'Login successful',
       token,
       user: {
         id: user._id,
         email: user.email,
         name: user.name,
         role: user.role,
-        avatar: user.avatar,
+        university: user.university,
+        studentId: user.studentId,
+        phone: user.phone,
+        emergencyContacts: user.emergencyContacts,
         lastLogin: user.lastLogin
       }
     });
@@ -124,29 +131,16 @@ router.post('/login', [
   }
 });
 
-// @route   GET /api/auth/me
-// @desc    Get current user
+// @route   GET /api/auth/profile
+// @desc    Get user profile
 // @access  Private
-router.get('/me', auth, async (req, res) => {
+router.get('/profile', auth, async (req, res) => {
   try {
-    res.json({
-      user: {
-        id: req.user._id,
-        email: req.user.email,
-        name: req.user.name,
-        role: req.user.role,
-        avatar: req.user.avatar,
-        phone: req.user.phone,
-        university: req.user.university,
-        studentId: req.user.studentId,
-        emergencyContacts: req.user.emergencyContacts,
-        preferences: req.user.preferences,
-        lastLogin: req.user.lastLogin
-      }
-    });
+    const user = await User.findById(req.user._id).select('-password');
+    res.json({ user });
   } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Get profile error:', error);
+    res.status(500).json({ error: 'Server error during profile retrieval' });
   }
 });
 
@@ -157,15 +151,16 @@ router.put('/profile', auth, [
   body('name').optional().trim().isLength({ min: 2 }),
   body('phone').optional().trim(),
   body('university').optional().trim(),
-  body('studentId').optional().trim()
+  body('studentId').optional().trim(),
+  body('emergencyContacts').optional().isArray()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+      return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, phone, university, studentId, emergencyContacts, preferences } = req.body;
+    const { name, phone, university, studentId, emergencyContacts } = req.body;
     const updateData = {};
 
     if (name) updateData.name = name;
@@ -173,50 +168,17 @@ router.put('/profile', auth, [
     if (university) updateData.university = university;
     if (studentId) updateData.studentId = studentId;
     if (emergencyContacts) updateData.emergencyContacts = emergencyContacts;
-    if (preferences) updateData.preferences = { ...req.user.preferences, ...preferences };
 
     const user = await User.findByIdAndUpdate(
       req.user._id,
       updateData,
       { new: true, runValidators: true }
-    );
+    ).select('-password');
 
-    res.json({
-      message: 'Profile updated successfully',
-      user: {
-        id: user._id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        avatar: user.avatar,
-        phone: user.phone,
-        university: user.university,
-        studentId: user.studentId,
-        emergencyContacts: user.emergencyContacts,
-        preferences: user.preferences
-      }
-    });
+    res.json({ user });
   } catch (error) {
-    console.error('Profile update error:', error);
+    console.error('Update profile error:', error);
     res.status(500).json({ error: 'Server error during profile update' });
-  }
-});
-
-// @route   POST /api/auth/push-token
-// @desc    Update user's push notification token
-// @access  Private
-router.post('/push-token', auth, [
-  body('pushToken').notEmpty()
-], async (req, res) => {
-  try {
-    const { pushToken } = req.body;
-    
-    await User.findByIdAndUpdate(req.user._id, { pushToken });
-    
-    res.json({ message: 'Push token updated successfully' });
-  } catch (error) {
-    console.error('Push token update error:', error);
-    res.status(500).json({ error: 'Server error during push token update' });
   }
 });
 
@@ -225,9 +187,9 @@ router.post('/push-token', auth, [
 // @access  Private
 router.post('/logout', auth, async (req, res) => {
   try {
-    // In a more sophisticated setup, you might want to blacklist the token
-    // For now, we'll just return success as token removal is handled client-side
-    res.json({ message: 'Logout successful' });
+    // In a more sophisticated setup, you might maintain a blacklist of tokens
+    // For now, we'll just return success as the client will remove the token
+    res.json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
     res.status(500).json({ error: 'Server error during logout' });

@@ -1,55 +1,16 @@
-#!/usr/bin/env node
+import { connectDB } from './config/database.js';
 
-// Backend startup script
-import { spawn } from 'child_process';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-console.log('🚀 Starting UniSafe Backend Server...');
-console.log('📁 Working directory:', __dirname);
-
-// Check if .env file exists
-import fs from 'fs';
-const envPath = path.join(__dirname, '.env');
-if (!fs.existsSync(envPath)) {
-  console.log('⚠️  .env file not found. Creating from env.example...');
+const start = async () => {
   try {
-    fs.copyFileSync(path.join(__dirname, 'env.example'), envPath);
-    console.log('✅ .env file created. Please update with your configuration.');
+    console.log('🚀 Starting UniSafe Backend...');
+    await connectDB();
+    console.log('✅ Database connected successfully');
+    console.log('📝 Make sure to set up your .env file with the correct MongoDB URI');
+    console.log('🔧 Example: MONGO_URI=mongodb://localhost:27017/unisafe');
   } catch (error) {
-    console.error('❌ Failed to create .env file:', error.message);
+    console.error('❌ Failed to start:', error);
     process.exit(1);
   }
-}
+};
 
-// Start the server
-const server = spawn('node', ['server.js'], {
-  cwd: __dirname,
-  stdio: 'inherit',
-  shell: true
-});
-
-server.on('error', (error) => {
-  console.error('❌ Failed to start server:', error);
-  process.exit(1);
-});
-
-server.on('close', (code) => {
-  console.log(`🛑 Server process exited with code ${code}`);
-});
-
-// Handle graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down server...');
-  server.kill('SIGINT');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('\n🛑 Shutting down server...');
-  server.kill('SIGTERM');
-  process.exit(0);
-});
+start();

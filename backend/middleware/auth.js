@@ -1,41 +1,34 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
-const auth = async (req, res, next) => {
+export const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
-      return res.status(401).json({ error: 'Access denied. No token provided.' });
+      return res.status(401).json({ error: 'No token, authorization denied' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId).select('-password');
-    
-    if (!user || !user.isActive) {
-      return res.status(401).json({ error: 'Invalid token or user not found.' });
+
+    if (!user) {
+      return res.status(401).json({ error: 'Token is not valid' });
     }
 
     req.user = user;
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
-    res.status(401).json({ error: 'Invalid token.' });
+    res.status(401).json({ error: 'Token is not valid' });
   }
 };
 
-const requireRole = (...roles) => {
+export const requireRole = (roles) => {
   return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required.' });
-    }
-
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions.' });
+      return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });
     }
-
     next();
   };
 };
-
-export { auth, requireRole };
