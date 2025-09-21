@@ -133,7 +133,6 @@ const guardianSessionSchema = new mongoose.Schema({
 
 // Index for efficient queries
 guardianSessionSchema.index({ studentId: 1, isActive: 1 });
-guardianSessionSchema.index({ sessionId: 1 });
 guardianSessionSchema.index({ createdAt: -1 });
 
 export default mongoose.model('GuardianSession', guardianSessionSchema);

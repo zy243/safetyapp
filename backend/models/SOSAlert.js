@@ -135,7 +135,6 @@ const sosAlertSchema = new mongoose.Schema({
 
 // Index for efficient queries
 sosAlertSchema.index({ studentId: 1, status: 1 });
-sosAlertSchema.index({ alertId: 1 });
 sosAlertSchema.index({ timestamp: -1 });
 sosAlertSchema.index({ status: 1, priority: 1 });
 
