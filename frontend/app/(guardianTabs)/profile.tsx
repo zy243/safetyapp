@@ -174,7 +174,7 @@ export default function ProfileScreen() {
   };
 
   const handleRemoveContact = (contactId: number) => {
-    setTrustedCircle(trustedCircle.filter((c: any) => c.id !== contactId));
+    setTrustedCircle(trustedCircle.filter(c => c.id !== contactId));
   };
 
   const handleChatbotQuery = () => {

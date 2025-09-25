@@ -24,11 +24,18 @@ import {
   speakGuardianStatus,
   speakEmergencyAlert
 } from '../../services/SpeechService';
-import GuardianService, { GuardianSession, StartSessionData } from '../../services/guardianService';
-import { useAuth } from '../../contexts/AuthContext';
-import NotificationService from '../../services/NotificationService';
 
 const { width, height } = Dimensions.get('window');
+
+interface GuardianSession {
+  id: string;
+  startTime: Date;
+  destination: string;
+  estimatedArrival: Date;
+  isActive: boolean;
+  route: Array<{ latitude: number; longitude: number }>;
+  trustedContacts: string[];
+}
 
 interface SafetyCheckIn {
   id: string;
@@ -37,7 +44,6 @@ interface SafetyCheckIn {
 }
 
 export default function GuardianScreen() {
-  const { user } = useAuth();
   const [guardianSession, setGuardianSession] = useState<GuardianSession | null>(null);
   const [showStartModal, setShowStartModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -60,11 +66,6 @@ export default function GuardianScreen() {
   // Animation for check-in reminder
   const pulseAnimation = useRef(new Animated.Value(1)).current;
 
-  // Load active session on component mount
-  useEffect(() => {
-    loadActiveSession();
-  }, []);
-
   // Speak page title on load for accessibility
   useFocusEffect(
     useCallback(() => {
@@ -72,53 +73,12 @@ export default function GuardianScreen() {
     }, [])
   );
 
-  const loadActiveSession = async () => {
-    try {
-      const session = await GuardianService.getActiveSession();
-      if (session) {
-        setGuardianSession(session);
-        if (session.currentLocation) {
-          setCurrentLocation({
-            coords: {
-              latitude: session.currentLocation.latitude,
-              longitude: session.currentLocation.longitude,
-              altitude: null,
-              accuracy: null,
-              altitudeAccuracy: null,
-              heading: null,
-              speed: null,
-            },
-            timestamp: Date.now(),
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Load active session error:', error);
-    }
-  };
-
   useEffect(() => {
     if (guardianSession?.isActive) {
       startCheckInTimer();
       startLocationTracking();
-      
-      // Start location tracking interval
-      const locationInterval = setInterval(async () => {
-        if (currentLocation) {
-          try {
-            await GuardianService.updateLocation({
-              latitude: currentLocation.coords.latitude,
-              longitude: currentLocation.coords.longitude
-            });
-          } catch (error) {
-            console.error('Location update error:', error);
-          }
-        }
-      }, 30000); // Update every 30 seconds
-
-      return () => clearInterval(locationInterval);
     }
-  }, [guardianSession, currentLocation]);
+  }, [guardianSession]);
 
   useEffect(() => {
     if (nextCheckIn && new Date() >= nextCheckIn) {
@@ -180,109 +140,36 @@ export default function GuardianScreen() {
     ).start();
   };
 
-  const handleStartGuardian = async () => {
+  const handleStartGuardian = () => {
     if (!destination.trim() || selectedContacts.length === 0) {
       speakButtonAction('Please enter destination and select trusted contacts');
       Alert.alert('Missing Information', 'Please enter destination and select trusted contacts');
       return;
     }
 
-    try {
-      // Get current location
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Location permission is required for Guardian mode');
-        return;
-      }
+    const session: GuardianSession = {
+      id: Date.now().toString(),
+      startTime: new Date(),
+      destination,
+      estimatedArrival: new Date(Date.now() + 30 * 60000), // 30 minutes from now
+      isActive: true,
+      route: routeCoordinates,
+      trustedContacts: selectedContacts,
+    };
 
-      const location = await Location.getCurrentPositionAsync({});
-      setCurrentLocation(location);
+    setGuardianSession(session);
+    setShowStartModal(false);
+    setDestination('');
+    setSelectedContacts([]);
 
-      // Prepare session data
-      const sessionData: StartSessionData = {
-        destination,
-        estimatedArrival: new Date(Date.now() + 30 * 60000).toISOString(), // 30 minutes from now
-        trustedContacts: selectedContacts.map(contactId => {
-          const contact = mockTrustedContacts.find(c => c.id === contactId);
-          return {
-            contactId: contact?.id || contactId,
-            name: contact?.name || 'Unknown',
-            phone: contact?.phone || '',
-            relationship: contact?.relationship || 'Contact'
-          };
-        }),
-        checkInInterval,
-        currentLocation: {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude
-        }
-      };
+    // Speak Guardian mode activation
+    speakGuardianStatus(`Guardian mode activated. Security monitoring your path to ${destination}`);
 
-      // Start session via backend
-      const session = await GuardianService.startSession(sessionData);
-      setGuardianSession(session);
-      setShowStartModal(false);
-      setDestination('');
-      setSelectedContacts([]);
-
-            // Send notifications to all guardians (trusted contacts)
-            for (const contact of selectedContacts) {
-              const contactInfo = mockTrustedContacts.find(c => c.id === contact);
-              if (contactInfo) {
-                try {
-                  // Send local notification to this device
-                  await NotificationService.scheduleGuardianNotification(
-                    user?.name || 'Student',
-                    destination,
-                    {
-                      sessionId: session.id,
-                      studentName: user?.name || 'Student',
-                      destination,
-                      startTime: session.startTime,
-                      estimatedArrival: session.estimatedArrival,
-                      currentLocation: {
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude
-                      },
-                      // Add deep linking data
-                      deepLink: `unisafe://guardian/monitor?sessionId=${session.id}&studentId=${user?.id}`,
-                      action: 'view_location'
-                    }
-                  );
-
-                  // Send push notification to guardian's device
-                  await GuardianService.notifyGuardian(
-                    contactInfo.id,
-                    {
-                      type: 'guardian_activated',
-                      studentName: user?.name || 'Student',
-                      destination,
-                      sessionId: session.id,
-                      currentLocation: {
-                        latitude: location.coords.latitude,
-                        longitude: location.coords.longitude
-                      },
-                      message: `${user?.name || 'Student'} has activated Guardian mode and is traveling to ${destination}. Tap to view their location.`
-                    }
-                  );
-                } catch (error) {
-                  console.error('Failed to send notification to guardian:', error);
-                }
-              }
-            }
-
-      // Speak Guardian mode activation
-      speakGuardianStatus(`Guardian mode activated. Security monitoring your path to ${destination}`);
-
-      // Notify trusted contacts
-      Alert.alert(
-        'Guardian Mode Activated',
-        `Your trusted contacts have been notified. They can now monitor your journey to ${destination}.`
-      );
-    } catch (error) {
-      console.error('Start guardian session error:', error);
-      Alert.alert('Error', 'Failed to start guardian session. Please try again.');
-    }
+    // Notify trusted contacts
+    Alert.alert(
+      'Guardian Mode Activated',
+      `Your trusted contacts have been notified. They can now monitor your journey to ${destination}.`
+    );
   };
 
   const handleStopGuardian = () => {
@@ -294,56 +181,36 @@ export default function GuardianScreen() {
         {
           text: 'Stop',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await GuardianService.endSession();
-              setGuardianSession(null);
-              setCurrentLocation(null);
-              setRouteCoordinates([]);
-              setLastCheckIn(null);
-              setNextCheckIn(null);
-              Alert.alert('Guardian Mode Stopped', 'Your journey monitoring has been stopped.');
-            } catch (error) {
-              console.error('Stop guardian session error:', error);
-              Alert.alert('Error', 'Failed to stop guardian session. Please try again.');
-            }
+          onPress: () => {
+            setGuardianSession(null);
+            setCurrentLocation(null);
+            setRouteCoordinates([]);
+            setLastCheckIn(null);
+            setNextCheckIn(null);
+            Alert.alert('Guardian Mode Stopped', 'Your journey monitoring has been stopped.');
           },
         },
       ]
     );
   };
 
-  const handleCheckInResponse = async (response: 'yes' | 'no') => {
-    try {
-      // Send check-in response to backend
-      await GuardianService.checkIn({
-        response,
-        location: currentLocation ? {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude
-        } : undefined
-      });
+  const handleCheckInResponse = (response: 'yes' | 'no') => {
+    setLastCheckIn(new Date());
+    setShowCheckInModal(false);
+    pulseAnimation.stopAnimation();
 
-      setLastCheckIn(new Date());
-      setShowCheckInModal(false);
-      pulseAnimation.stopAnimation();
-
-      if (response === 'yes') {
-        // Schedule next check-in
-        const next = new Date(Date.now() + checkInInterval * 60000);
-        setNextCheckIn(next);
-        Alert.alert('Check-in Complete', 'Thank you! Stay safe on your journey.');
-      } else {
-        // Escalate to trusted contacts and security
-        Alert.alert(
-          'Help Requested',
-          'Your trusted contacts and campus security have been notified immediately.',
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (error) {
-      console.error('Check-in response error:', error);
-      Alert.alert('Error', 'Failed to send check-in response. Please try again.');
+    if (response === 'yes') {
+      // Schedule next check-in
+      const next = new Date(Date.now() + checkInInterval * 60000);
+      setNextCheckIn(next);
+      Alert.alert('Check-in Complete', 'Thank you! Stay safe on your journey.');
+    } else {
+      // Escalate to trusted contacts and security
+      Alert.alert(
+        'Help Requested',
+        'Your trusted contacts and campus security have been notified immediately.',
+        [{ text: 'OK' }]
+      );
     }
   };
 

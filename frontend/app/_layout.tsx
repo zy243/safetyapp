@@ -4,19 +4,10 @@ import { AuthProvider, useAuth } from "../contexts/AuthContext";
 import { SOSProvider } from "../contexts/SOSContext";
 import { AlarmProvider } from "../contexts/AlarmContext";
 import LoadingScreen from "../components/LoadingScreen";
-import NotificationService from "../services/NotificationService";
-import { useEffect } from "react";
 import "react-native-get-random-values";
 
 function LayoutContent() {
-  const { isLoading, user, updatePushToken } = useAuth();
-
-  // Initialize notification service when user is logged in
-  useEffect(() => {
-    if (user) {
-      NotificationService.initialize(user.id, updatePushToken);
-    }
-  }, [user, updatePushToken]);
+  const { isLoading, user } = useAuth();
 
   if (isLoading) {
     return <LoadingScreen />;

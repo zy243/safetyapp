@@ -1,28 +1,17 @@
 {
-  "extends": "@expo/tsconfig.base",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
     },
-    "skipLibCheck": true,
-    "jsx": "react-jsx",
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM"],
-    "module": "ESNext",
-    "moduleResolution": "node",
-    "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "allowJs": true
+    "skipLibCheck": true      // <--- ignore type errors in node_modules
   },
   "include": [
     "env.d.ts",
     "**/*.ts",
-    "**/*.tsx"
-  ],
+    "**/*.tsx",
+    "services/guardianService.js",],
   "exclude": ["node_modules"]
 }

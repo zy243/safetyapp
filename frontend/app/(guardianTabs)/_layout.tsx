@@ -25,16 +25,6 @@ export default function GuardianLayout() {
       />
 
       <Tabs.Screen
-        name="monitor"
-        options={{
-          title: "Monitor",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="location-outline" size={size} color={color} />
-          ),
-        }}
-      />
-
-      <Tabs.Screen
         name="emergency"
         options={{
           title: "Emergency",
