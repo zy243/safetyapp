@@ -66,7 +66,7 @@ export default function Index() {
       await login({ email, password, role: role as any });
 
       if (role === "guardian") {
-        router.replace("/(guardianTabs)/guardianMode");
+        router.replace("/(guardianTabs)/guardianTrackingScreen");
       } else if (role === "staff") {
         router.replace("/staff/sos-monitoring"); // Redirect staff to staff layout
       } else {
@@ -188,13 +188,15 @@ export default function Index() {
               </Text>
             </TouchableOpacity>
 
-            <Text 
-              style={styles.link} 
-              onPress={() => router.push("/(auth)/signup")}
-              accessibilityRole="link"
-            >
-              New to UniSafe? Sign up
-            </Text>
+            {role === "guardian" && (
+              <Text 
+                style={styles.link} 
+                onPress={() => router.push("/(auth)/signup")}
+                accessibilityRole="link"
+              >
+                New to UniSafe? Sign up
+              </Text>
+            )}
           </View>
 
           {/* Footer */}
